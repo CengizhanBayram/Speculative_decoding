@@ -6,7 +6,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sns
 
 
 PLOT_STYLE = {
@@ -234,12 +233,12 @@ def generate_all_figures(results_dict: dict, save_dir) -> list:
         (
             "fig_acceptance_distribution",
             lambda: fig_acceptance_distribution(spec_cond, save_dir),
-            spec_cond,
+            len(spec_cond) > 0,
         ),
         (
             "fig_speedup_boxplot",
             lambda: fig_speedup_boxplot(spec_cond, baseline_df, save_dir),
-            spec_cond and baseline_df is not None,
+            len(spec_cond) > 0 and baseline_df is not None,
         ),
         (
             "fig_ablation_gamma",

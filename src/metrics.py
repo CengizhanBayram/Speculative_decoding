@@ -1,5 +1,4 @@
 import warnings
-from typing import List
 
 import numpy as np
 import pandas as pd
@@ -37,7 +36,8 @@ def compute_task_metrics(pred: str, ref: str, task: str) -> dict:
         try:
             bleu = sacrebleu.corpus_bleu([pred], [[ref]])
             metrics["bleu"] = bleu.score
-        except Exception:
+        except Exception as exc:
+            warnings.warn(f"BLEU computation failed: {exc}")
             metrics["bleu"] = 0.0
 
     return metrics

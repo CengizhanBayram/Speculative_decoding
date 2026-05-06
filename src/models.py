@@ -22,13 +22,16 @@ def load_draft_model(name: str, device: str) -> tuple:
 
 
 def load_target_model(name: str, bits: int = 4) -> tuple:
-    """Load the large target model with NF4 double-quantization via BitsAndBytes."""
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_use_double_quant=True,
-        bnb_4bit_compute_dtype=torch.float16,
-    )
+    """Load the large target model with BitsAndBytes quantization (4-bit NF4 or 8-bit)."""
+    if bits == 8:
+        bnb_config = BitsAndBytesConfig(load_in_8bit=True)
+    else:
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_compute_dtype=torch.float16,
+        )
 
     tokenizer = AutoTokenizer.from_pretrained(name, use_fast=True)
     if tokenizer.pad_token is None:

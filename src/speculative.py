@@ -103,7 +103,7 @@ def speculative_decode(
             p_target         = t_prob[0, token_id].item()
             p_draft          = d_prob[0, token_id].item()
             acceptance_prob  = min(1.0, p_target / max(p_draft, 1e-10))
-            accepted         = torch.rand(1).item() <= acceptance_prob
+            accepted         = torch.rand(1, device=draft_device).item() <= acceptance_prob
 
             token_level_log.append({
                 "position":        generated.shape[1] - n_input + i,
@@ -242,6 +242,7 @@ def run_experiment(
     mode: str = "speculative",
     draft_steps: int = 5,
     max_new_tokens: int = 128,
+    temperature: float = 1.0,
 ) -> pd.DataFrame:
     """
     Run decoding over `samples` and return results as a DataFrame.
@@ -250,6 +251,7 @@ def run_experiment(
     ----------
     mode : "speculative" | "greedy" | "beam"
     draft_steps : number of speculative draft tokens (γ), ignored for greedy/beam.
+    temperature : sampling temperature for speculative decoding (0.0 = greedy).
     """
     records = []
 
@@ -270,7 +272,7 @@ def run_experiment(
                 target_tok=target_tok,
                 draft_steps=draft_steps,
                 max_new_tokens=max_new_tokens,
-                temperature=1.0,
+                temperature=temperature,
             )
         elif mode == "greedy":
             result = greedy_decode(

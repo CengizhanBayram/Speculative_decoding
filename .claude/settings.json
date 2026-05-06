@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(New-Item -Path \"c:\\\\Users\\\\cengh\\\\Desktop\\\\Speculative_decoding\\\\.gitignore\" -ItemType File -Force)",
+      "Bash(Out-Null)",
+      "Bash(nfigures/)",
+      "Bash(n*.pyc)",
+      "Bash(n*.pt)",
+      "Bash(n*.safetensors)",
+      "Bash(git -C \"c:\\\\Users\\\\cengh\\\\Desktop\\\\Speculative_decoding\" remote -v)",
+      "Bash(git -C \"c:\\\\Users\\\\cengh\\\\Desktop\\\\Speculative_decoding\" log --oneline -3)",
+      "Bash(git -C \"c:\\\\Users\\\\cengh\\\\Desktop\\\\Speculative_decoding\" status)",
+      "Bash(git -C \"c:\\\\Users\\\\cengh\\\\Desktop\\\\Speculative_decoding\" config credential.helper)",
+      "Bash(git -C \"c:\\\\Users\\\\cengh\\\\Desktop\\\\Speculative_decoding\" add requirements.txt .gitignore run_experiments.ipynb src/)",
+      "Bash(git -C \"c:\\\\Users\\\\cengh\\\\Desktop\\\\Speculative_decoding\" status --short)",
+      "Bash(git -C 'c:\\\\Users\\\\cengh\\\\Desktop\\\\Speculative_decoding' commit -m ' *)",
+      "Bash(git -C \"c:\\\\Users\\\\cengh\\\\Desktop\\\\Speculative_decoding\" add README.md)",
+      "Bash(git -C c:\\\\Users\\\\cengh\\\\Desktop\\\\Speculative_decoding log --oneline -5)"
+    ]
+  }
+}

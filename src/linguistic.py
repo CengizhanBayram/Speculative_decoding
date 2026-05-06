@@ -44,7 +44,7 @@ def _categorize_token(word: str) -> str:
         if not results:
             return "UNKNOWN"
         # results[0] = (lemma, List[MorphemeState])
-        _lemma, analyses = results[0]
+        _, analyses = results[0]
         if not analyses:
             return "UNKNOWN"
 
