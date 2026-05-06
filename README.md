@@ -377,4 +377,4 @@ If you use this codebase in your research, please cite:
 
 ---
 
-*Built with [Claude Code](https://claude.ai/claude-code).*
+
