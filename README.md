@@ -105,7 +105,7 @@ cd Speculative_decoding
 pip install -r requirements.txt
 ```
 
-> **Minimum hardware:** NVIDIA GPU with ≥ 8 GB VRAM (gpt2-xl ~3 GB, turkish-gpt2-large ~1.5 GB in float16).  
+> **Minimum hardware:** NVIDIA GPU with ≥ 6 GB VRAM (gpt2-large ~1.5 GB, turkish-gpt2-large ~1.5 GB in float16).  
 > Tested on: T4 16 GB (Colab free tier), A100 40 GB (Colab Pro+).
 
 ---
@@ -200,9 +200,11 @@ Both models use the GPT-2 BPE tokenizer (50,257 tokens), so token IDs are compat
 | Role | Model | Params | Dtype |
 |------|-------|--------|-------|
 | Draft | `gpt2` | ~117 M | float16 |
-| Target | `gpt2-xl` | ~1.5 B | float16 |
+| Target | `gpt2-large` | ~774 M | float16 |
 
 Both models use the standard GPT-2 BPE tokenizer, ensuring a shared vocabulary.
+The target size (774 M) matches the Turkish target exactly, enabling a fair cross-linguistic comparison
+where any difference in acceptance rates can be attributed to language properties rather than model capacity.
 
 > Model names are configured in `src/config.py`. Swap them to reproduce experiments with different model pairs — just ensure both models in a pair share the same tokenizer.
 
@@ -275,9 +277,12 @@ Implemented in `src/linguistic.py` using the `zeyrek` Turkish morphological anal
 
 Each sample's generated sequence is split into **early / mid / late** thirds. Acceptance rates per bucket reveal whether morphological complexity accumulates as generation progresses.
 
-### OOV Fragmentation Analysis
+### OOV Fragmentation & Acceptance Correlation
 
-For every prompt word, subword fragment counts are measured in both draft and target vocabularies. **Spearman correlation** between draft and target fragmentation indicates vocabulary alignment — low correlation predicts higher rejection rates.
+Since draft and target share the same tokenizer, fragmentation is measured per language against its own vocabulary. **Turkish words fragment into more subwords than English words** due to agglutinative morphology — even when a Turkish-specific tokenizer is used. Two analyses are produced:
+
+- **Cross-linguistic fragmentation comparison** (`oov_analysis_tr.csv` vs `oov_analysis_en.csv`): mean fragments per word for Turkish vs English prompts, showing Turkish's higher morphological complexity.
+- **Fragmentation–acceptance Spearman correlation** (`fragmentation_acceptance.csv`): measures whether words requiring more subword tokens (complex morphology) are accepted less often by the draft model.
 
 ---
 
@@ -303,15 +308,17 @@ After a full run, `results/` contains:
 
 ```
 results/
-├── baseline_tr_results.csv       # greedy baseline — Turkish (latency, generated text, task)
-├── baseline_en_results.csv       # greedy baseline — English
-├── speculative_tr_results.csv    # TR speculative (+ acceptance_rate, token_level_log)
-├── speculative_en_results.csv    # EN speculative
-├── ablation_gamma.csv            # γ ablation across all draft steps
-├── statistical_tests.json        # all statistical test outputs
-├── morpheme_rejection.csv        # rejection rate per morpheme category
-├── position_acceptance.csv       # acceptance rate per position bucket
-└── oov_analysis.csv              # per-word fragmentation + Spearman r
+├── baseline_tr_results.csv          # greedy baseline — Turkish
+├── baseline_en_results.csv          # greedy baseline — English
+├── speculative_tr_results.csv       # TR speculative (+ acceptance_rate, token_level_log)
+├── speculative_en_results.csv       # EN speculative
+├── ablation_gamma.csv               # γ ablation across all draft steps
+├── statistical_tests.json           # all statistical test outputs
+├── morpheme_rejection.csv           # rejection rate per Turkish morpheme category
+├── position_acceptance.csv          # acceptance rate per position bucket (early/mid/late)
+├── oov_analysis_tr.csv              # Turkish subword fragmentation per word
+├── oov_analysis_en.csv              # English subword fragmentation per word
+└── fragmentation_acceptance.csv     # Spearman ρ: fragment count vs acceptance rate
 ```
 
 CSV columns for speculative results:
@@ -340,7 +347,7 @@ SEED                 = 42
 DRAFT_MODEL_NAME     = "ytu-ce-cosmos/turkish-gpt2"        # ~117 M — Turkish draft
 TARGET_MODEL_NAME    = "ytu-ce-cosmos/turkish-gpt2-large"  # ~774 M — Turkish target
 DRAFT_MODEL_EN_NAME  = "gpt2"                              # ~117 M — English draft
-TARGET_MODEL_EN_NAME = "gpt2-xl"                           # ~1.5 B — English target
+TARGET_MODEL_EN_NAME = "gpt2-large"                        # ~774 M — English target (matches Turkish target size)
 MAX_NEW_TOKENS       = 128
 DRAFT_STEPS_LIST     = [1, 3, 5, 7, 10]
 DEFAULT_DRAFT_STEPS  = 5
