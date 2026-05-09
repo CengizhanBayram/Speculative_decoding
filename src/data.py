@@ -8,9 +8,9 @@ def load_tquad(n: int, seed: int) -> list:
     Falls back to alternative hub paths if the primary name fails.
     """
     candidates = [
-        ("erdemkan/tquad", "validation"),
+        ("erdemkan/tquad",     "validation"),
         ("husseinalyasah/tquad", "validation"),
-        ("maydogan/TQuAD", "validation"),
+        ("maydogan/TQuAD",     "validation"),
     ]
     ds = None
     for name, split in candidates:
@@ -44,13 +44,30 @@ def load_trnews(n: int, seed: int) -> list:
     """
     Load TR-News Turkish summarisation dataset.
     Each item: {prompt, reference, task}.
+    Falls back to alternative splits if the primary one is unavailable.
     """
-    ds = load_dataset("batubayk/TR-News", split="test", trust_remote_code=True)
+    candidates = [
+        ("batubayk/TR-News", "test"),
+        ("batubayk/TR-News", "train"),
+        ("batubayk/TR-News", "validation"),
+    ]
+    ds = None
+    for name, split in candidates:
+        try:
+            ds = load_dataset(name, split=split, trust_remote_code=True)
+            break
+        except Exception:
+            continue
+    if ds is None:
+        raise RuntimeError(
+            "Could not load TR-News dataset. Check hub names in src/data.py."
+        )
+
     ds = ds.shuffle(seed=seed).select(range(min(n, len(ds))))
 
     samples = []
     for item in ds:
-        article   = item.get("content", item.get("text", ""))
+        article   = item.get("content", item.get("text",    ""))
         reference = item.get("title",   item.get("summary", ""))
 
         prompt = f"Aşağıdaki haberi özetle:\n{article[:400]}\nÖzet:"
@@ -64,10 +81,15 @@ def load_squad_en(n: int, seed: int) -> list:
     Load SQuAD English QA dataset.
     Each item: {prompt, reference, task}.
     """
-    try:
-        ds = load_dataset("rajpurkar/squad", split="validation", trust_remote_code=True)
-    except Exception:
-        ds = load_dataset("squad", split="validation", trust_remote_code=True)
+    ds = None
+    for name in ("rajpurkar/squad", "squad"):
+        try:
+            ds = load_dataset(name, split="validation", trust_remote_code=True)
+            break
+        except Exception:
+            continue
+    if ds is None:
+        raise RuntimeError("Could not load SQuAD dataset.")
 
     ds = ds.shuffle(seed=seed).select(range(min(n, len(ds))))
 
