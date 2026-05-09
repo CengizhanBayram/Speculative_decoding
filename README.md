@@ -77,7 +77,7 @@ Speculative_decoding/
 │   ├── linguistic.py        # morpheme categorisation, rejection/position/OOV analysis
 │   └── figures.py           # 5 publication-quality figure generators
 │
-├── run_experiments.ipynb    # zero-logic Colab notebook (14 cells)
+├── run_experiments.ipynb    # zero-logic Colab notebook (17 cells)
 ├── requirements.txt
 ├── .gitignore
 └── README.md
@@ -90,11 +90,12 @@ Speculative_decoding/
 ### Option A — Google Colab (recommended)
 
 1. Open `run_experiments.ipynb` in Google Colab (T4/A100 GPU runtime).
-2. Place two plain-text files in your Google Drive under `MyDrive/secrets/`:
-   - `hf_token.txt` — Hugging Face access token (with `read` scope).
-   - `gh_token.txt` — GitHub Personal Access Token (with `repo` scope).
-3. Fill in `GITHUB_USER` and `REPO_NAME` in **Cell 2**.
-4. Run all cells top-to-bottom.
+2. In **Cell 1**, fill in your tokens directly:
+   ```python
+   HF_TOKEN = "hf_..."   # Hugging Face access token (read scope)
+   GH_TOKEN = "ghp_..."  # GitHub Personal Access Token (repo scope)
+   ```
+3. Run all cells top-to-bottom.
 
 ### Option B — Local
 
@@ -104,8 +105,8 @@ cd Speculative_decoding
 pip install -r requirements.txt
 ```
 
-> **Minimum hardware:** NVIDIA GPU with ≥ 16 GB VRAM for the 4-bit quantised 7B target model.  
-> Tested on: A100 40 GB (Colab Pro+), RTX 3090 24 GB.
+> **Minimum hardware:** NVIDIA GPU with ≥ 8 GB VRAM (gpt2-xl ~3 GB, turkish-gpt2-large ~1.5 GB in float16).  
+> Tested on: T4 16 GB (Colab free tier), A100 40 GB (Colab Pro+).
 
 ---
 
@@ -115,13 +116,15 @@ The entire experiment pipeline is orchestrated by `run_experiments.ipynb`:
 
 | Cell | Action | Output |
 |------|--------|--------|
-| 1 | Mount Drive, read tokens, HF login | — |
+| 1 | Mount Drive, enter tokens, HF login | — |
 | 2 | Clone / pull repo, `pip install` | — |
 | 3 | `sys.path` + imports from `src/` | — |
 | 4 | `seed_everything(42)`, `check_gpu()` | GPU info dict |
 | 5 | Load TQuAD + TR-News + SQuAD-EN | 3 × list[dict] |
-| 6 | Load draft models (TR, EN) + target model | 3 models |
-| 7 | Greedy baseline (target only, TR) | `baseline_results.csv` |
+| 6 | Load Turkish draft + target models | 2 models |
+| 6b | Load English draft + target models | 2 models |
+| 7 | Greedy baseline — Turkish | `baseline_tr_results.csv` |
+| 7b | Greedy baseline — English | `baseline_en_results.csv` |
 | 8 | Speculative decoding — Turkish | `speculative_tr_results.csv` |
 | 9 | Speculative decoding — English | `speculative_en_results.csv` |
 | 10 | γ ablation over {1,3,5,7,10} | `ablation_gamma.csv` |
@@ -181,34 +184,27 @@ All datasets are shuffled with `SEED=42` before sampling.
 
 ## Models
 
-### Draft Model — Turkish
+Both draft–target pairs **share the same tokenizer and vocabulary**, which is a hard requirement of the speculative decoding algorithm.
 
-| Property | Value |
-|----------|-------|
-| Name | `ytu-ce-cosmos/turkish-gpt2-large` |
-| Dtype | `float16` |
-| Role | Proposes γ tokens per iteration |
-| Speed | ~10–20× faster than target per token |
+### Turkish Pair
 
-### Draft Model — English
+| Role | Model | Params | Dtype |
+|------|-------|--------|-------|
+| Draft | `ytu-ce-cosmos/turkish-gpt2` | ~117 M | float16 |
+| Target | `ytu-ce-cosmos/turkish-gpt2-large` | ~774 M | float16 |
 
-| Property | Value |
-|----------|-------|
-| Name | `gpt2` |
-| Dtype | `float16` |
-| Role | Control group draft for English SQuAD |
+Both models use the GPT-2 BPE tokenizer (50,257 tokens), so token IDs are compatible across draft and target.
 
-### Target Model
+### English Pair
 
-| Property | Value |
-|----------|-------|
-| Name | `ytu-ce-cosmos/turkish-llama-2-7b-chat` |
-| Quantisation | NF4 + double quantisation (BitsAndBytes) |
-| Compute dtype | `float16` |
-| Device map | `auto` (multi-GPU aware) |
-| Role | Verifier; its distribution is preserved exactly |
+| Role | Model | Params | Dtype |
+|------|-------|--------|-------|
+| Draft | `gpt2` | ~117 M | float16 |
+| Target | `gpt2-xl` | ~1.5 B | float16 |
 
-> Model names are configured in `src/config.py`. Swap them to reproduce experiments with different model pairs.
+Both models use the standard GPT-2 BPE tokenizer, ensuring a shared vocabulary.
+
+> Model names are configured in `src/config.py`. Swap them to reproduce experiments with different model pairs — just ensure both models in a pair share the same tokenizer.
 
 ---
 
@@ -307,7 +303,8 @@ After a full run, `results/` contains:
 
 ```
 results/
-├── baseline_results.csv          # greedy baseline (latency, generated text, task)
+├── baseline_tr_results.csv       # greedy baseline — Turkish (latency, generated text, task)
+├── baseline_en_results.csv       # greedy baseline — English
 ├── speculative_tr_results.csv    # TR speculative (+ acceptance_rate, token_level_log)
 ├── speculative_en_results.csv    # EN speculative
 ├── ablation_gamma.csv            # γ ablation across all draft steps
@@ -339,16 +336,18 @@ CSV columns for speculative results:
 All hyperparameters live in `src/config.py`:
 
 ```python
-SEED              = 42
-DRAFT_MODEL_NAME  = "ytu-ce-cosmos/turkish-gpt2-large"
-TARGET_MODEL_NAME = "ytu-ce-cosmos/turkish-llama-2-7b-chat"
-MAX_NEW_TOKENS    = 128
-DRAFT_STEPS_LIST  = [1, 3, 5, 7, 10]
-DEFAULT_DRAFT_STEPS = 5
-NUM_SAMPLES_QA    = 500
-NUM_SAMPLES_SUM   = 500
-NUM_SAMPLES_EN    = 500
-QUANTIZATION_BITS = 4
+SEED                 = 42
+DRAFT_MODEL_NAME     = "ytu-ce-cosmos/turkish-gpt2"        # ~117 M — Turkish draft
+TARGET_MODEL_NAME    = "ytu-ce-cosmos/turkish-gpt2-large"  # ~774 M — Turkish target
+DRAFT_MODEL_EN_NAME  = "gpt2"                              # ~117 M — English draft
+TARGET_MODEL_EN_NAME = "gpt2-xl"                           # ~1.5 B — English target
+MAX_NEW_TOKENS       = 128
+DRAFT_STEPS_LIST     = [1, 3, 5, 7, 10]
+DEFAULT_DRAFT_STEPS  = 5
+NUM_SAMPLES_QA       = 500
+NUM_SAMPLES_SUM      = 500
+NUM_SAMPLES_EN       = 500
+QUANTIZATION_BITS    = 0   # 0 = float16 (no quantization); set to 4 for 7B+ models
 ```
 
 No changes to any other file are needed to swap models or adjust sample sizes.
