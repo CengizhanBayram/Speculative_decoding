@@ -9,7 +9,7 @@ TARGET_MODEL_NAME = "ytu-ce-cosmos/turkish-gpt2-large"  # ~774 M params (target)
 
 # English pair — standard GPT-2 family, same BPE tokenizer.
 DRAFT_MODEL_EN_NAME  = "gpt2"     # ~117 M params (draft)
-TARGET_MODEL_EN_NAME = "gpt2-xl"  # ~1.5 B params (target)
+TARGET_MODEL_EN_NAME = "gpt2-large"  # ~774 M params (target) — same size as Turkish target for fair comparison
 
 MAX_NEW_TOKENS      = 128
 DRAFT_STEPS_LIST    = [1, 3, 5, 7, 10]
