@@ -1,22 +1,22 @@
-{
- "cells": [
-  {
-   "cell_type": "markdown",
-   "id": "cell-md-title",
-   "metadata": {},
-   "source": [
-    "# Speculative Decoding for Turkish NLP â€” Experiments\n",
-    "\n",
-    "**Architecture rule:** this notebook contains **zero business logic**.  \n",
-    "All logic lives in `.py` files inside `src/`. Each cell mounts storage, installs deps,\n",
-    "imports from `src/`, and calls a single function."
-   ]
-  },
-  {
-   "cell_type": "code",
-   "id": "cell-01-auth",
-   "metadata": {},
-   "source": [
+"""Rebuild run_experiments.ipynb with all bug fixes applied."""
+import json
+
+with open("run_experiments.ipynb") as f:
+    nb = json.load(f)
+
+def code(cell_id, lines):
+    return {
+        "cell_type": "code",
+        "id": cell_id,
+        "metadata": {},
+        "source": lines,
+        "outputs": [],
+        "execution_count": None,
+    }
+
+md_title = nb["cells"][0]  # keep markdown title as-is
+
+cell_01 = code("cell-01-auth", [
     "# ── Cell 1: Mount Google Drive, read tokens, configure git, login to HF ──────\n",
     "from google.colab import drive\n",
     "drive.mount('/content/drive', force_remount=True)\n",
@@ -42,16 +42,10 @@
     "\n",
     "from huggingface_hub import login as hf_login\n",
     "hf_login(token=HF_TOKEN)\n",
-    "print('Authentication complete.')\n"
-   ],
-   "outputs": [],
-   "execution_count": null
-  },
-  {
-   "cell_type": "code",
-   "id": "cell-02-clone",
-   "metadata": {},
-   "source": [
+    "print('Authentication complete.')\n",
+])
+
+cell_02 = code("cell-02-clone", [
     "# ── Cell 2: Clone repo (or pull), install dependencies ───────────────────────\n",
     "import os, sys, subprocess\n",
     "\n",
@@ -72,16 +66,10 @@
     "     os.path.join(REPO_DIR, 'requirements.txt'), '-q'],\n",
     "    check=True,\n",
     ")\n",
-    "print('Dependencies installed.')\n"
-   ],
-   "outputs": [],
-   "execution_count": null
-  },
-  {
-   "cell_type": "code",
-   "id": "cell-03-imports",
-   "metadata": {},
-   "source": [
+    "print('Dependencies installed.')\n",
+])
+
+cell_03 = code("cell-03-imports", [
     "# ── Cell 3: Add repo to path and import everything from src/ ─────────────────\n",
     "import sys\n",
     "sys.path.insert(0, REPO_DIR)\n",
@@ -111,29 +99,17 @@
     ")\n",
     "from src.figures import generate_all_figures\n",
     "\n",
-    "print('All imports successful.')\n"
-   ],
-   "outputs": [],
-   "execution_count": null
-  },
-  {
-   "cell_type": "code",
-   "id": "cell-04-seed-gpu",
-   "metadata": {},
-   "source": [
+    "print('All imports successful.')\n",
+])
+
+cell_04 = code("cell-04-seed-gpu", [
     "# ── Cell 4: Seed RNG, verify GPU ─────────────────────────────────────────────\n",
     "seed_everything(SEED)\n",
     "gpu_info = check_gpu()\n",
-    "print(gpu_info)\n"
-   ],
-   "outputs": [],
-   "execution_count": null
-  },
-  {
-   "cell_type": "code",
-   "id": "cell-05-data",
-   "metadata": {},
-   "source": [
+    "print(gpu_info)\n",
+])
+
+cell_05 = code("cell-05-data", [
     "# ── Cell 5: Load datasets ─────────────────────────────────────────────────────\n",
     "tquad_samples  = load_tquad(n=NUM_SAMPLES_QA,  seed=SEED)\n",
     "trnews_samples = load_trnews(n=NUM_SAMPLES_SUM, seed=SEED)\n",
@@ -142,16 +118,10 @@
     "print(f'TQuAD     : {len(tquad_samples):>4d} samples')\n",
     "print(f'TR-News   : {len(trnews_samples):>4d} samples')\n",
     "print(f'SQuAD EN  : {len(squad_samples):>4d} samples')\n",
-    "print('\\nSample prompt (TQuAD):', tquad_samples[0]['prompt'][:120])\n"
-   ],
-   "outputs": [],
-   "execution_count": null
-  },
-  {
-   "cell_type": "code",
-   "id": "cell-06-models-tr",
-   "metadata": {},
-   "source": [
+    "print('\\nSample prompt (TQuAD):', tquad_samples[0]['prompt'][:120])\n",
+])
+
+cell_06 = code("cell-06-models-tr", [
     "# ── Cell 6: Load Turkish draft + target models ───────────────────────────────\n",
     "# Both ytu-ce-cosmos models share the same GPT-2 BPE tokenizer (50,257 tokens).\n",
     "# Shared vocabulary is a hard requirement for speculative decoding.\n",
@@ -164,16 +134,10 @@
     "\n",
     "print('Draft TR  :', DRAFT_MODEL_NAME)\n",
     "print('Target TR :', TARGET_MODEL_NAME)\n",
-    "print('Turkish models loaded.')\n"
-   ],
-   "outputs": [],
-   "execution_count": null
-  },
-  {
-   "cell_type": "code",
-   "id": "cell-06b-models-en",
-   "metadata": {},
-   "source": [
+    "print('Turkish models loaded.')\n",
+])
+
+cell_06b = code("cell-06b-models-en", [
     "# ── Cell 6b: Load English draft + target models ──────────────────────────────\n",
     "# gpt2 and gpt2-xl share the same GPT-2 BPE tokenizer.\n",
     "draft_model_en,  draft_tok_en  = load_draft_model(DRAFT_MODEL_EN_NAME,   device=DEVICE)\n",
@@ -181,16 +145,10 @@
     "\n",
     "print('Draft EN  :', DRAFT_MODEL_EN_NAME)\n",
     "print('Target EN :', TARGET_MODEL_EN_NAME)\n",
-    "print('English models loaded.')\n"
-   ],
-   "outputs": [],
-   "execution_count": null
-  },
-  {
-   "cell_type": "code",
-   "id": "cell-07-baseline-tr",
-   "metadata": {},
-   "source": [
+    "print('English models loaded.')\n",
+])
+
+cell_07 = code("cell-07-baseline-tr", [
     "# ── Cell 7: Greedy baseline — Turkish ───────────────────────────────────────\n",
     "import pandas as pd\n",
     "\n",
@@ -207,16 +165,10 @@
     "out_path = RESULTS_DIR / 'baseline_tr_results.csv'\n",
     "baseline_tr_df.drop(columns=['token_level_log']).to_csv(out_path, index=False)\n",
     "print(f'Saved -> {out_path}')\n",
-    "print(baseline_tr_df[['task', 'latency_ms']].groupby('task').describe())\n"
-   ],
-   "outputs": [],
-   "execution_count": null
-  },
-  {
-   "cell_type": "code",
-   "id": "cell-07b-baseline-en",
-   "metadata": {},
-   "source": [
+    "print(baseline_tr_df[['task', 'latency_ms']].groupby('task').describe())\n",
+])
+
+cell_07b = code("cell-07b-baseline-en", [
     "# ── Cell 7b: Greedy baseline — English ──────────────────────────────────────\n",
     "baseline_en_df = run_experiment(\n",
     "    samples        = squad_samples,\n",
@@ -229,16 +181,10 @@
     "out_path = RESULTS_DIR / 'baseline_en_results.csv'\n",
     "baseline_en_df.drop(columns=['token_level_log']).to_csv(out_path, index=False)\n",
     "print(f'Saved -> {out_path}')\n",
-    "print(baseline_en_df[['task', 'latency_ms']].groupby('task').describe())\n"
-   ],
-   "outputs": [],
-   "execution_count": null
-  },
-  {
-   "cell_type": "code",
-   "id": "cell-08-spec-tr",
-   "metadata": {},
-   "source": [
+    "print(baseline_en_df[['task', 'latency_ms']].groupby('task').describe())\n",
+])
+
+cell_08 = code("cell-08-spec-tr", [
     "# ── Cell 8: Speculative decoding — Turkish ────────────────────────────────────\n",
     "speculative_tr_df = run_experiment(\n",
     "    samples        = tr_samples_all,\n",
@@ -254,16 +200,10 @@
     "out_path = RESULTS_DIR / 'speculative_tr_results.csv'\n",
     "speculative_tr_df.drop(columns=['token_level_log']).to_csv(out_path, index=False)\n",
     "print(f'Saved -> {out_path}')\n",
-    "print(speculative_tr_df[['task', 'latency_ms', 'acceptance_rate']].groupby('task').mean())\n"
-   ],
-   "outputs": [],
-   "execution_count": null
-  },
-  {
-   "cell_type": "code",
-   "id": "cell-09-spec-en",
-   "metadata": {},
-   "source": [
+    "print(speculative_tr_df[['task', 'latency_ms', 'acceptance_rate']].groupby('task').mean())\n",
+])
+
+cell_09 = code("cell-09-spec-en", [
     "# ── Cell 9: Speculative decoding — English ────────────────────────────────────\n",
     "# Uses gpt2 (draft) + gpt2-xl (target): shared GPT-2 BPE vocabulary.\n",
     "speculative_en_df = run_experiment(\n",
@@ -280,16 +220,10 @@
     "out_path = RESULTS_DIR / 'speculative_en_results.csv'\n",
     "speculative_en_df.drop(columns=['token_level_log']).to_csv(out_path, index=False)\n",
     "print(f'Saved -> {out_path}')\n",
-    "print(speculative_en_df[['task', 'latency_ms', 'acceptance_rate']].groupby('task').mean())\n"
-   ],
-   "outputs": [],
-   "execution_count": null
-  },
-  {
-   "cell_type": "code",
-   "id": "cell-10-ablation",
-   "metadata": {},
-   "source": [
+    "print(speculative_en_df[['task', 'latency_ms', 'acceptance_rate']].groupby('task').mean())\n",
+])
+
+cell_10 = code("cell-10-ablation", [
     "# ── Cell 10: Ablation over gamma (draft steps) — Turkish ────────────────────\n",
     "ablation_frames = []\n",
     "\n",
@@ -311,16 +245,10 @@
     "out_path = RESULTS_DIR / 'ablation_gamma.csv'\n",
     "ablation_df.drop(columns=['token_level_log']).to_csv(out_path, index=False)\n",
     "print(f'Saved -> {out_path}')\n",
-    "print(ablation_df.groupby('draft_steps')[['latency_ms', 'acceptance_rate']].mean())\n"
-   ],
-   "outputs": [],
-   "execution_count": null
-  },
-  {
-   "cell_type": "code",
-   "id": "cell-11-stats",
-   "metadata": {},
-   "source": [
+    "print(ablation_df.groupby('draft_steps')[['latency_ms', 'acceptance_rate']].mean())\n",
+])
+
+cell_11 = code("cell-11-stats", [
     "# ── Cell 11: Statistical tests ────────────────────────────────────────────────\n",
     "stat_results = run_all_statistical_tests(\n",
     "    baseline_df    = baseline_tr_df,\n",
@@ -334,16 +262,10 @@
     "print(f'Saved -> {out_path}')\n",
     "\n",
     "for k, v in stat_results.items():\n",
-    "    print(f'  {k}: {v}')\n"
-   ],
-   "outputs": [],
-   "execution_count": null
-  },
-  {
-   "cell_type": "code",
-   "id": "cell-12-linguistic",
-   "metadata": {},
-   "source": [
+    "    print(f'  {k}: {v}')\n",
+])
+
+cell_12 = code("cell-12-linguistic", [
     "# ── Cell 12: Linguistic / morphological analysis ──────────────────────────────\n",
     "tr_logs = speculative_tr_df['token_level_log'].tolist()\n",
     "\n",
@@ -363,16 +285,10 @@
     "\n",
     "if 'spearman_corr' in oov_df.attrs:\n",
     "    print(f\"OOV Spearman r = {oov_df.attrs['spearman_corr']:.4f} \"\n",
-    "          f\"(p = {oov_df.attrs['spearman_p']:.4f})\")\n"
-   ],
-   "outputs": [],
-   "execution_count": null
-  },
-  {
-   "cell_type": "code",
-   "id": "cell-13-figures",
-   "metadata": {},
-   "source": [
+    "          f\"(p = {oov_df.attrs['spearman_p']:.4f})\")\n",
+])
+
+cell_13 = code("cell-13-figures", [
     "# ── Cell 13: Generate all publication-quality figures ────────────────────────\n",
     "results_for_figures = {\n",
     "    'baseline':            baseline_tr_df,\n",
@@ -387,16 +303,10 @@
     "\n",
     "print(f'Generated {len(saved_paths)} figure files:')\n",
     "for p in saved_paths:\n",
-    "    print(f'  {p}')\n"
-   ],
-   "outputs": [],
-   "execution_count": null
-  },
-  {
-   "cell_type": "code",
-   "id": "cell-14-push",
-   "metadata": {},
-   "source": [
+    "    print(f'  {p}')\n",
+])
+
+cell_14 = code("cell-14-push", [
     "# ── Cell 14: Commit and push results to GitHub ────────────────────────────────\n",
     "from datetime import datetime\n",
     "\n",
@@ -404,29 +314,18 @@
     "commit_hash = git_push(message=commit_msg, repo_dir=REPO_DIR)\n",
     "\n",
     "print(f'Pushed  : {commit_hash}')\n",
-    "print(f'Message : {commit_msg}')\n"
-   ],
-   "outputs": [],
-   "execution_count": null
-  }
- ],
- "metadata": {
-  "kernelspec": {
-   "display_name": "Python 3",
-   "language": "python",
-   "name": "python3"
-  },
-  "language_info": {
-   "codemirror_mode": {
-    "name": "ipython",
-    "version": 3
-   },
-   "file_extension": ".py",
-   "mimetype": "text/x-python",
-   "name": "python",
-   "version": "3.10.12"
-  }
- },
- "nbformat": 4,
- "nbformat_minor": 5
-}
+    "print(f'Message : {commit_msg}')\n",
+])
+
+nb["cells"] = [
+    md_title,
+    cell_01, cell_02, cell_03, cell_04, cell_05,
+    cell_06, cell_06b,
+    cell_07, cell_07b,
+    cell_08, cell_09, cell_10, cell_11, cell_12, cell_13, cell_14,
+]
+
+with open("run_experiments.ipynb", "w", encoding="utf-8") as f:
+    json.dump(nb, f, ensure_ascii=False, indent=1)
+
+print(f"Done. {len(nb['cells'])} cells written.")
