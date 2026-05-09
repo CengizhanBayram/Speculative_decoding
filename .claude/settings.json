@@ -19,7 +19,8 @@
       "Bash(python -c \"import json; nb = json.load\\(open\\('c:/Users/cengh/Desktop/Speculative_decoding/run_experiments.ipynb'\\)\\); [print\\(f'--- {c[\\\\\"id\\\\\"]} ---\\\\n' + ''.join\\(c['source']\\)[:200]\\) for c in nb['cells']]\")",
       "Bash(python -c ' *)",
       "Bash(python \"c:/Users/cengh/Desktop/Speculative_decoding/build_nb.py\")",
-      "Bash(python build_nb.py)"
+      "Bash(python build_nb.py)",
+      "Bash(del build_nb.py)"
     ]
   }
 }
