@@ -14,7 +14,9 @@ try:
 except ImportError:
     _analyzer        = None
     ZEYREK_AVAILABLE = False
-    warnings.warn("zeyrek not installed. Morphological analysis will return UNKNOWN for all tokens.")
+    warnings.warn(
+        "zeyrek not installed. Morphological analysis will return UNKNOWN for all tokens."
+    )
 
 
 # Morpheme category labels
@@ -27,23 +29,30 @@ MORPHEME_CATEGORIES = [
     "UNKNOWN",
 ]
 
-_NOMINAL_FEATURES     = {"Gen", "Dat", "Acc", "Loc", "Abl", "Ins", "Nom",
-                          "Pnon", "A3sg", "A1sg", "A2sg", "A3pl", "A1pl", "A2pl"}
-_VERBAL_FEATURES      = {"Prog1", "Prog2", "Aor", "Past", "Narr",
-                          "Cond", "Imp", "Opt", "Neces", "Fut"}
+_NOMINAL_FEATURES      = {"Gen", "Dat", "Acc", "Loc", "Abl", "Ins", "Nom",
+                           "Pnon", "A3sg", "A1sg", "A2sg", "A3pl", "A1pl", "A2pl"}
+_VERBAL_FEATURES       = {"Prog1", "Prog2", "Aor", "Past", "Narr",
+                           "Cond", "Imp", "Opt", "Neces", "Fut"}
 _DERIVATIONAL_FEATURES = {"Inf1", "Inf2", "Inf3", "Agt", "With", "Without",
                            "Noun", "Adj", "Adv"}
 
 
-def _categorize_token(word: str) -> str:
-    """Map a single Turkish surface form to one of the five morpheme categories."""
-    if not ZEYREK_AVAILABLE or _analyzer is None:
+# ── Word-level morphological categorisation ──────────────────────────────────
+
+def _categorize_word(word: str) -> str:
+    """
+    Map a Turkish surface-form WORD (not a subword fragment) to a morpheme category.
+
+    Expects a complete, space-stripped word such as 'evlerde' or 'gidiyorum'.
+    Subword fragments like 'lerde' or '##de' return 'UNKNOWN'.
+    """
+    word = word.strip()
+    if not word or not ZEYREK_AVAILABLE or _analyzer is None:
         return "UNKNOWN"
     try:
         results = _analyzer.lemmatize(word)
         if not results:
             return "UNKNOWN"
-        # results[0] = (lemma, List[MorphemeState])
         _, analyses = results[0]
         if not analyses:
             return "UNKNOWN"
@@ -58,7 +67,6 @@ def _categorize_token(word: str) -> str:
             return "VERBAL_SUFFIX"
         if suffixes & _DERIVATIONAL_FEATURES:
             return "DERIVATIONAL"
-        # Compound heuristic: more than two morpheme boundaries
         if len(parts) > 3:
             return "COMPOUND"
         if suffixes & _NOMINAL_FEATURES:
@@ -68,17 +76,57 @@ def _categorize_token(word: str) -> str:
         return "UNKNOWN"
 
 
+# ── GPT-2 subword → word grouping ─────────────────────────────────────────────
+
+def _group_tokens_into_words(log: list) -> list:
+    """
+    Group GPT-2 BPE subword token entries into word-level groups.
+
+    GPT-2 tokenizer prefixes word-initial tokens with a space character.
+    A new word group begins whenever token_str starts with ' ' (or for the
+    very first token in a sequence).
+
+    Returns
+    -------
+    list of word-groups; each group is a list of token-entry dicts.
+    """
+    groups: list = []
+    current: list = []
+    for entry in log:
+        tok = entry.get("token_str", "")
+        if tok.startswith(" ") or not current:
+            if current:
+                groups.append(current)
+            current = [entry]
+        else:
+            current.append(entry)
+    if current:
+        groups.append(current)
+    return groups
+
+
+def _reconstruct_word(group: list) -> str:
+    """Join subword tokens in a group into a single surface-form string."""
+    return "".join(e.get("token_str", "") for e in group).strip()
+
+
+# ── Public analysis functions ─────────────────────────────────────────────────
+
 def analyze_morphology(tokens: list) -> list:
     """
-    Return a list of dicts with keys {token, category} for each surface form.
-    Categories: ROOT_ONLY | NOMINAL_SUFFIX | VERBAL_SUFFIX | DERIVATIONAL | COMPOUND | UNKNOWN
+    Return a list of dicts {token, category} for each token string.
+    Input tokens should be complete words, not GPT-2 subword fragments.
     """
-    return [{"token": t, "category": _categorize_token(t)} for t in tokens]
+    return [{"token": t, "category": _categorize_word(t)} for t in tokens]
 
 
 def compute_rejection_by_morpheme(token_level_logs: list) -> pd.DataFrame:
     """
-    Aggregate token-level accept/reject logs by morpheme category.
+    Aggregate token-level accept/reject logs by Turkish morpheme category.
+
+    GPT-2 BPE subword tokens are first aggregated into complete words using
+    space-prefix heuristics; zeyrek then assigns each word a morpheme category.
+    All subword tokens of the same word share that category.
 
     Parameters
     ----------
@@ -87,22 +135,22 @@ def compute_rejection_by_morpheme(token_level_logs: list) -> pd.DataFrame:
 
     Returns
     -------
-    DataFrame with columns: morpheme_category, accepted, rejected, total, rejection_rate.
-    Sorted descending by rejection_rate.
+    DataFrame with columns: morpheme_category, accepted, rejected, total,
+    rejection_rate. Sorted descending by rejection_rate.
     """
     cat_counts: dict = defaultdict(lambda: {"accepted": 0, "rejected": 0})
 
     for log in token_level_logs:
-        for entry in log:
-            token_str = entry.get("token_str", "")
-            accepted  = entry.get("accepted",  False)
-            category  = _categorize_token(token_str)
-            key       = "accepted" if accepted else "rejected"
-            cat_counts[category][key] += 1
+        for group in _group_tokens_into_words(log):
+            word     = _reconstruct_word(group)
+            category = _categorize_word(word)
+            for entry in group:
+                key = "accepted" if entry.get("accepted", False) else "rejected"
+                cat_counts[category][key] += 1
 
     rows = []
     for cat, counts in cat_counts.items():
-        total         = counts["accepted"] + counts["rejected"]
+        total          = counts["accepted"] + counts["rejected"]
         rejection_rate = counts["rejected"] / max(total, 1)
         rows.append({
             "morpheme_category": cat,
@@ -111,6 +159,11 @@ def compute_rejection_by_morpheme(token_level_logs: list) -> pd.DataFrame:
             "total":             total,
             "rejection_rate":    round(rejection_rate, 4),
         })
+
+    if not rows:
+        return pd.DataFrame(
+            columns=["morpheme_category", "accepted", "rejected", "total", "rejection_rate"]
+        )
 
     return (
         pd.DataFrame(rows)
@@ -156,37 +209,93 @@ def position_acceptance_analysis(logs: list) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def oov_analysis(samples: list, draft_tok, target_tok) -> pd.DataFrame:
+def oov_analysis(samples: list, tokenizer) -> pd.DataFrame:
     """
-    For each word in every prompt measure tokenisation fragmentation in the
-    draft and target vocabularies.  Higher fragment counts signal out-of-vocabulary
-    (OOV) subword splits that typically increase rejection rates.
+    Analyse subword fragmentation per word using a single tokenizer.
+
+    Since draft and target share the same tokenizer, fragmentation reflects
+    the inherent morphological complexity of each language relative to its
+    own vocabulary — not a cross-model alignment issue.
+
+    Call this function separately for Turkish and English samples with their
+    respective tokenizers to obtain a cross-linguistic comparison.
+
+    Parameters
+    ----------
+    samples   : list of {prompt, task, ...} dicts.
+    tokenizer : the tokenizer for the language of these samples.
 
     Returns
     -------
-    DataFrame with columns: word, draft_fragments, target_fragments,
-    is_oov_draft, is_oov_target, task.
-    DataFrame.attrs carries spearman_corr and spearman_p.
+    DataFrame with columns: word, fragments, task, is_complex.
+    DataFrame.attrs carries mean_fragments and fraction_complex per task.
     """
     rows = []
     for sample in samples:
         task = sample.get("task", "unknown")
         for word in sample["prompt"].split():
-            d_frags = len(draft_tok.encode(word,  add_special_tokens=False))
-            t_frags = len(target_tok.encode(word, add_special_tokens=False))
+            frags = len(tokenizer.encode(word, add_special_tokens=False))
             rows.append({
-                "word":             word,
-                "draft_fragments":  d_frags,
-                "target_fragments": t_frags,
-                "is_oov_draft":     d_frags > 1,
-                "is_oov_target":    t_frags > 1,
-                "task":             task,
+                "word":       word,
+                "fragments":  frags,
+                "task":       task,
+                "is_complex": frags > 1,
+            })
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+
+    # Per-task summary statistics stored in attrs
+    task_stats = (
+        df.groupby("task")["fragments"]
+        .agg(mean="mean", median="median", std="std", fraction_complex=lambda x: (x > 1).mean())
+        .round(4)
+    )
+    df.attrs["task_fragmentation"] = task_stats.to_dict()
+
+    return df
+
+
+def fragmentation_acceptance_analysis(token_level_logs: list) -> pd.DataFrame:
+    """
+    Correlate subword fragmentation count with per-word acceptance rate.
+
+    Words requiring more subword tokens (higher fragmentation, i.e. morphologically
+    complex or rare words) may exhibit lower acceptance rates in speculative
+    decoding because the draft model's distribution diverges more from the target
+    at morpheme boundaries.
+
+    Parameters
+    ----------
+    token_level_logs : list of per-sample speculative decoding logs.
+
+    Returns
+    -------
+    DataFrame with columns: word, fragments, mean_acceptance, n_tokens.
+    DataFrame.attrs carries spearman_corr and spearman_p (Spearman ρ between
+    fragment count and mean acceptance rate, aggregated at the word level).
+    """
+    rows = []
+    for log in token_level_logs:
+        for group in _group_tokens_into_words(log):
+            word     = _reconstruct_word(group)
+            frags    = len(group)
+            mean_acc = sum(e.get("accepted", False) for e in group) / max(len(group), 1)
+            rows.append({
+                "word":            word,
+                "fragments":       frags,
+                "mean_acceptance": round(mean_acc, 4),
+                "n_tokens":        len(group),
             })
 
     df = pd.DataFrame(rows)
     if not df.empty and len(df) > 2:
-        corr, p = stats.spearmanr(df["draft_fragments"], df["target_fragments"])
-        df.attrs["spearman_corr"] = float(corr)
-        df.attrs["spearman_p"]    = float(p)
+        # Aggregate to unique words to avoid frequency bias
+        word_agg = df.groupby("fragments")["mean_acceptance"].mean().reset_index()
+        if len(word_agg) > 2:
+            corr, p = stats.spearmanr(word_agg["fragments"], word_agg["mean_acceptance"])
+            df.attrs["spearman_corr"] = float(corr)
+            df.attrs["spearman_p"]    = float(p)
 
     return df
