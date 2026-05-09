@@ -1,27 +1,39 @@
 from datasets import load_dataset
 
 
-def load_tquad(n: int, seed: int) -> list:
+def load_xquad_tr(n: int, seed: int) -> list:
     """
-    Load TQuAD Turkish QA dataset.
+    Load a Turkish QA dataset (XQuAD-TR subset).
+
+    XQuAD (Artetxe et al., 2020) is a multilingual reading-comprehension
+    benchmark with SQuAD-format annotations. The Turkish subset ('xquad.tr')
+    is used here as the primary Turkish QA source.
+
+    Falls back to alternative hub paths if the primary one fails.
     Each item: {prompt, reference, task}.
-    Falls back to alternative hub paths if the primary name fails.
     """
     candidates = [
-        ("erdemkan/tquad",     "validation"),
-        ("husseinalyasah/tquad", "validation"),
-        ("maydogan/TQuAD",     "validation"),
+        # (hub_name, config_name, split)
+        ("google/xquad",                          "xquad.tr", "validation"),
+        ("boun-tabilab/XQuAD-TR",                 None,       "validation"),
+        ("gorkemgoknar/tr-nlp-qa-xquad-trquad",  None,       "train"),
     ]
+
     ds = None
-    for name, split in candidates:
+    for name, config, split in candidates:
         try:
-            ds = load_dataset(name, split=split, trust_remote_code=True)
+            if config:
+                ds = load_dataset(name, config, split=split)
+            else:
+                ds = load_dataset(name, split=split)
             break
         except Exception:
             continue
+
     if ds is None:
         raise RuntimeError(
-            "Could not load a TQuAD dataset. Check hub names in src/data.py."
+            "Could not load a Turkish QA dataset. "
+            "Check hub names / internet connectivity in src/data.py."
         )
 
     ds = ds.shuffle(seed=seed).select(range(min(n, len(ds))))
@@ -54,10 +66,11 @@ def load_trnews(n: int, seed: int) -> list:
     ds = None
     for name, split in candidates:
         try:
-            ds = load_dataset(name, split=split, trust_remote_code=True)
+            ds = load_dataset(name, split=split)
             break
         except Exception:
             continue
+
     if ds is None:
         raise RuntimeError(
             "Could not load TR-News dataset. Check hub names in src/data.py."
@@ -84,10 +97,11 @@ def load_squad_en(n: int, seed: int) -> list:
     ds = None
     for name in ("rajpurkar/squad", "squad"):
         try:
-            ds = load_dataset(name, split="validation", trust_remote_code=True)
+            ds = load_dataset(name, split="validation")
             break
         except Exception:
             continue
+
     if ds is None:
         raise RuntimeError("Could not load SQuAD dataset.")
 

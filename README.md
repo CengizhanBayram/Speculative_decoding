@@ -35,7 +35,7 @@ This repository studies speculative decoding specifically in the context of **ag
 ## Key Contributions
 
 - Full implementation of the **accept/reject speculative decoding algorithm** (Leviathan et al., 2023) with per-token logging.
-- Controlled comparison between **Turkish QA**, **Turkish summarisation**, and **English QA** tasks.
+- Controlled comparison between **Turkish QA** (XQuAD-TR), **Turkish summarisation** (TR-News), and **English QA** (SQuAD) tasks.
 - **Morpheme-category rejection analysis** using `zeyrek` — the first study to break down acceptance rates by Turkish morphological category (ROOT\_ONLY, NOMINAL\_SUFFIX, VERBAL\_SUFFIX, DERIVATIONAL, COMPOUND).
 - **Position-bucket analysis**: acceptance rates across early / mid / late token positions.
 - **OOV fragmentation analysis**: Spearman correlation between subword fragment counts in draft vs. target vocabularies.
@@ -139,9 +139,9 @@ To run a subset, simply execute the relevant cells — all intermediate data liv
 
 ## Datasets
 
-### TQuAD — Turkish Question Answering
+### XQuAD-TR — Turkish Question Answering
 
-- **Source:** Turkish translation/adaptation of SQuAD.
+- **Source:** Turkish subset of XQuAD (Artetxe et al., 2020), a multilingual reading-comprehension benchmark derived from SQuAD. Loaded via `google/xquad` with config `xquad.tr`.
 - **Split used:** validation.
 - **Prompt format:**
   ```
