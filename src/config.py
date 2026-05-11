@@ -1,9 +1,12 @@
 from pathlib import Path
 
 # ── Reproducibility ───────────────────────────────────────────────────────────
-# All random operations (dataset shuffle, numpy, torch, Python random) are seeded
-# with this value via utils.seed_everything(SEED) at the start of each run.
-SEED = 42
+# SEED  : primary seed used for dataset shuffling, greedy baselines, and all
+#         experiments except the multi-seed TR-small robustness runs.
+# SEEDS : three seeds used to assess variance in the primary TR-small experiment.
+#         Other model pairs (TR-medium, EN-small, EN-medium) run with SEEDS[0].
+SEED  = 42
+SEEDS = [42, 123, 456]
 
 # ── Turkish model pairs ───────────────────────────────────────────────────────
 # All ytu-ce-cosmos models are trained on Turkish and share the same GPT-2 BPE
