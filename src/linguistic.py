@@ -1,3 +1,4 @@
+import re
 import warnings
 from collections import defaultdict
 
@@ -11,11 +12,13 @@ try:
     import zeyrek
     _analyzer        = zeyrek.MorphAnalyzer()
     ZEYREK_AVAILABLE = True
+    print("[linguistic] zeyrek loaded successfully.")
 except ImportError:
     _analyzer        = None
     ZEYREK_AVAILABLE = False
     warnings.warn(
-        "zeyrek not installed. Morphological analysis will return UNKNOWN for all tokens."
+        "zeyrek not installed — run `pip install zeyrek`. "
+        "Morphological analysis will return UNKNOWN for all tokens."
     )
 
 
@@ -44,9 +47,12 @@ def _categorize_word(word: str) -> str:
     Map a Turkish surface-form WORD (not a subword fragment) to a morpheme category.
 
     Expects a complete, space-stripped word such as 'evlerde' or 'gidiyorum'.
+    Attached punctuation (commas, periods, question marks, quotes) is stripped
+    before analysis so that tokens like 'göre,' or 'sunulmaktadır?' are handled.
     Subword fragments like 'lerde' or '##de' return 'UNKNOWN'.
     """
-    word = word.strip()
+    # Strip leading/trailing whitespace then remove attached punctuation chars
+    word = re.sub(r"[^\w]", "", word.strip(), flags=re.UNICODE)
     if not word or not ZEYREK_AVAILABLE or _analyzer is None:
         return "UNKNOWN"
     try:

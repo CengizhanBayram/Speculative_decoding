@@ -194,6 +194,82 @@ def fig_position_acceptance(position_df: pd.DataFrame, save_dir: Path) -> list:
     return _save(fig, save_dir, "position_acceptance")
 
 
+def fig_model_comparison(model_results: dict, baseline_dict: dict, save_dir: Path) -> list:
+    """
+    Side-by-side grouped bar chart comparing acceptance rate and median speedup
+    across all model pairs (e.g., TR-small, TR-medium, EN-small, EN-medium).
+
+    Parameters
+    ----------
+    model_results : label → speculative DataFrame (acceptance_rate, latency_ms)
+    baseline_dict : label → greedy baseline DataFrame (latency_ms)
+                    Keys should match those in model_results.
+    """
+    labels = list(model_results.keys())
+    n      = len(labels)
+
+    acceptance_means = []
+    acceptance_cis   = []
+    median_speedups  = []
+
+    for label in labels:
+        spec_df = model_results[label]
+        ar = spec_df["acceptance_rate"].dropna().values
+        acceptance_means.append(float(ar.mean()))
+        sem = float(ar.std() / max(len(ar) ** 0.5, 1))
+        acceptance_cis.append(sem * 1.96)   # ~95 % CI via normal approx
+
+        base_df = baseline_dict.get(label)
+        if base_df is not None:
+            bl = base_df["latency_ms"].values
+            sp = spec_df["latency_ms"].values
+            k  = min(len(bl), len(sp))
+            ratios = bl[:k] / np.maximum(sp[:k], 1e-6)
+            median_speedups.append(float(np.median(ratios)))
+        else:
+            median_speedups.append(float("nan"))
+
+    x      = np.arange(n)
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    colors = [_PALETTE["blue"], _PALETTE["purple"],
+              _PALETTE["orange"], _PALETTE["red"]] * 4
+
+    # ── Acceptance rate panel ─────────────────────────────────────────────────
+    bars = axes[0].bar(x, acceptance_means, yerr=acceptance_cis,
+                       color=colors[:n], edgecolor="white",
+                       capsize=4, alpha=0.85)
+    axes[0].set_xticks(x)
+    axes[0].set_xticklabels(labels, rotation=15, ha="right", fontsize=9)
+    axes[0].set_ylabel("Mean Acceptance Rate")
+    axes[0].set_title("Acceptance Rate by Model Pair")
+    axes[0].set_ylim(0, 1.05)
+    for bar, val in zip(bars, acceptance_means):
+        axes[0].text(bar.get_x() + bar.get_width() / 2,
+                     val + 0.02, f"{val:.3f}", ha="center", fontsize=8)
+
+    # ── Median speedup panel ──────────────────────────────────────────────────
+    valid = [(l, s) for l, s in zip(labels, median_speedups) if not np.isnan(s)]
+    if valid:
+        vlabels, vspeeds = zip(*valid)
+        vx = np.arange(len(vlabels))
+        bars2 = axes[1].bar(vx, vspeeds, color=colors[:len(vlabels)],
+                            edgecolor="white", alpha=0.85)
+        axes[1].axhline(1.0, color="crimson", linestyle="--",
+                        linewidth=1.2, label="No speedup (1×)")
+        axes[1].set_xticks(vx)
+        axes[1].set_xticklabels(vlabels, rotation=15, ha="right", fontsize=9)
+        axes[1].set_ylabel("Median Speedup (×)")
+        axes[1].set_title("Median Speedup vs Greedy Baseline")
+        axes[1].legend(frameon=False, fontsize=9)
+        for bar, val in zip(bars2, vspeeds):
+            axes[1].text(bar.get_x() + bar.get_width() / 2,
+                         val + 0.01, f"{val:.3f}", ha="center", fontsize=8)
+
+    fig.suptitle("Cross-Model Comparison: Acceptance Rate & Speedup", fontsize=13)
+    fig.tight_layout()
+    return _save(fig, save_dir, "model_comparison")
+
+
 # ── Master entry-point ────────────────────────────────────────────────────────
 
 def generate_all_figures(results_dict: dict, save_dir) -> list:
@@ -202,9 +278,12 @@ def generate_all_figures(results_dict: dict, save_dir) -> list:
 
     Expected keys in results_dict
     ------------------------------
-    baseline            : pd.DataFrame   (greedy baseline runs)
-    speculative_tr      : pd.DataFrame   (Turkish speculative runs)
-    speculative_en      : pd.DataFrame   (English speculative runs)
+    baseline            : pd.DataFrame   (Turkish greedy baseline)
+    baseline_en         : pd.DataFrame   (English greedy baseline)
+    speculative_tr      : pd.DataFrame   (Turkish small-draft speculative)
+    speculative_tr_med  : pd.DataFrame   (Turkish medium-draft speculative) [optional]
+    speculative_en      : pd.DataFrame   (English small-draft speculative)
+    speculative_en_med  : pd.DataFrame   (English medium-draft speculative) [optional]
     ablation            : pd.DataFrame   (γ ablation runs)
     morpheme_rejection  : pd.DataFrame   (output of compute_rejection_by_morpheme)
     position_acceptance : pd.DataFrame   (output of position_acceptance_analysis)
@@ -216,18 +295,31 @@ def generate_all_figures(results_dict: dict, save_dir) -> list:
     save_dir = Path(save_dir)
     all_paths: list = []
 
-    baseline_df  = results_dict.get("baseline")
-    spec_tr_df   = results_dict.get("speculative_tr")
-    spec_en_df   = results_dict.get("speculative_en")
-    ablation_df  = results_dict.get("ablation")
-    morpheme_df  = results_dict.get("morpheme_rejection")
-    position_df  = results_dict.get("position_acceptance")
+    baseline_df      = results_dict.get("baseline")
+    baseline_en_df   = results_dict.get("baseline_en")
+    spec_tr_df       = results_dict.get("speculative_tr")
+    spec_tr_med_df   = results_dict.get("speculative_tr_med")
+    spec_en_df       = results_dict.get("speculative_en")
+    spec_en_med_df   = results_dict.get("speculative_en_med")
+    ablation_df      = results_dict.get("ablation")
+    morpheme_df      = results_dict.get("morpheme_rejection")
+    position_df      = results_dict.get("position_acceptance")
 
+    # Conditions shown in distribution / boxplot figures
     spec_cond: dict = {}
-    if spec_tr_df is not None:
-        spec_cond["Turkish (Speculative)"] = spec_tr_df
-    if spec_en_df is not None:
-        spec_cond["English (Speculative)"] = spec_en_df
+    if spec_tr_df  is not None: spec_cond["TR-Small"]  = spec_tr_df
+    if spec_tr_med_df is not None: spec_cond["TR-Medium"] = spec_tr_med_df
+    if spec_en_df  is not None: spec_cond["EN-Small"]  = spec_en_df
+    if spec_en_med_df is not None: spec_cond["EN-Medium"] = spec_en_med_df
+
+    # Baselines per condition (for speedup computation)
+    baseline_per_cond: dict = {}
+    if baseline_df is not None:
+        if "TR-Small"  in spec_cond: baseline_per_cond["TR-Small"]  = baseline_df
+        if "TR-Medium" in spec_cond: baseline_per_cond["TR-Medium"] = baseline_df
+    if baseline_en_df is not None:
+        if "EN-Small"  in spec_cond: baseline_per_cond["EN-Small"]  = baseline_en_df
+        if "EN-Medium" in spec_cond: baseline_per_cond["EN-Medium"] = baseline_en_df
 
     _attempts = [
         (
@@ -254,6 +346,11 @@ def generate_all_figures(results_dict: dict, save_dir) -> list:
             "fig_position_acceptance",
             lambda: fig_position_acceptance(position_df, save_dir),
             position_df is not None and not position_df.empty,
+        ),
+        (
+            "fig_model_comparison",
+            lambda: fig_model_comparison(spec_cond, baseline_per_cond, save_dir),
+            len(spec_cond) > 1,
         ),
     ]
 
