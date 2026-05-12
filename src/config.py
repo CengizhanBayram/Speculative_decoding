@@ -27,7 +27,7 @@ TARGET_MODEL_EN_NAME       = "gpt2-large"   # ~774 M (target — shared)
 # All Llama-3 models share the same tokenizer (128,256 tokens, tiktoken-based).
 # Turkish-Llama-8b is fine-tuned from Llama-3.1-8B → tokenizer is identical.
 # Draft runs in float16 (1B ≈ 2 GB); target needs 4-bit NF4 (8B ≈ 4 GB on T4).
-DRAFT_MODEL_LLAMA_NAME  = "meta-llama/Llama-3.2-1B"
+DRAFT_MODEL_LLAMA_NAME  = "unsloth/Llama-3.2-1B"          # gatesiz mirror; erişim için meta-llama/Llama-3.2-1B
 TARGET_MODEL_LLAMA_NAME = "ytu-ce-cosmos/Turkish-Llama-8b-Instruct-v0.1"
 QUANTIZATION_BITS_LLAMA = 4   # 8B target: 4-bit required on 16 GB T4
 
