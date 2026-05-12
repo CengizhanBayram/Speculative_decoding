@@ -138,31 +138,156 @@ def fig_ablation_gamma(ablation_df: pd.DataFrame, save_dir: Path) -> list:
     return _save(fig, save_dir, "ablation_gamma")
 
 
-def fig_morpheme_rejection(morpheme_df: pd.DataFrame, save_dir: Path) -> list:
+def fig_latency_violin(results_dict: dict, baseline_dict: dict, save_dir: Path) -> list:
     """
-    Horizontal bar chart of rejection rates by Turkish morpheme category,
-    coloured on a red-yellow-green diverging scale.
+    Violin + embedded box plot of per-sample speedup ratios for each model pair.
+    Shows full distribution including the outlier structure that median alone hides.
     """
-    fig, ax = plt.subplots(figsize=(8, 5))
+    labels, data = [], []
+    for label, spec_df in results_dict.items():
+        base_df = baseline_dict.get(label)
+        if base_df is None:
+            continue
+        bl = base_df["latency_ms"].values
+        sp = spec_df["latency_ms"].values
+        k  = min(len(bl), len(sp))
+        labels.append(label)
+        data.append((bl[:k] / np.maximum(sp[:k], 1e-6)).tolist())
 
-    df = morpheme_df.sort_values("rejection_rate", ascending=True).copy()
-    n  = len(df)
-    palette = plt.cm.RdYlGn_r(np.linspace(0.15, 0.85, n))
+    if not data:
+        return []
 
-    bars = ax.barh(df["morpheme_category"], df["rejection_rate"], color=palette)
-    ax.set_xlabel("Rejection Rate")
-    ax.set_title("Draft Token Rejection Rate by Turkish Morpheme Category")
-    ax.set_xlim(0, 1)
+    fig, ax = plt.subplots(figsize=(max(6, len(data) * 2), 5))
 
-    for bar, val in zip(bars, df["rejection_rate"]):
-        ax.text(
-            min(val + 0.02, 0.95),
-            bar.get_y() + bar.get_height() / 2,
-            f"{val:.2f}", va="center", fontsize=9,
-        )
+    colors = [_PALETTE["blue"], _PALETTE["purple"],
+              _PALETTE["orange"], _PALETTE["red"]]
 
+    parts = ax.violinplot(data, positions=range(len(data)),
+                          showmedians=False, showextrema=False)
+    for pc, color in zip(parts["bodies"], colors):
+        pc.set_facecolor(color)
+        pc.set_alpha(0.55)
+
+    # Embedded box-and-whisker
+    bp = ax.boxplot(data, positions=range(len(data)),
+                    widths=0.12, patch_artist=True,
+                    medianprops=dict(color="white", linewidth=2),
+                    whiskerprops=dict(linewidth=1.2),
+                    capprops=dict(linewidth=1.2),
+                    flierprops=dict(marker=".", markersize=3, alpha=0.4))
+    for patch, color in zip(bp["boxes"], colors):
+        patch.set_facecolor(color)
+        patch.set_alpha(0.85)
+
+    ax.axhline(1.0, color="crimson", linestyle="--", linewidth=1.2,
+               label="No speedup (1×)")
+    ax.set_xticks(range(len(labels)))
+    ax.set_xticklabels(labels, fontsize=10)
+    ax.set_ylabel("Speedup (×)")
+    ax.set_title("Latency Speedup Distribution (Violin + Box)")
+    ax.legend(frameon=False, fontsize=9)
     fig.tight_layout()
-    return _save(fig, save_dir, "morpheme_rejection")
+    return _save(fig, save_dir, "latency_violin")
+
+
+def fig_fragmentation_comparison(oov_tr_df: pd.DataFrame,
+                                  oov_en_df: pd.DataFrame,
+                                  save_dir: Path) -> list:
+    """
+    Two-panel figure comparing subword fragmentation between Turkish and English.
+
+    Left panel  : overlaid density histograms of fragment counts (1–5+).
+    Right panel : mean fragments per task, error bars = 1 SD, for both languages.
+    """
+    fig, axes = plt.subplots(1, 2, figsize=(13, 4))
+
+    # ── Panel 1: histogram overlay ────────────────────────────────────────────
+    for df, label, color in [
+        (oov_tr_df, "Turkish", _PALETTE["blue"]),
+        (oov_en_df, "English", _PALETTE["orange"]),
+    ]:
+        counts = df["fragments"].clip(upper=5)
+        bins   = np.arange(0.5, 6.5, 1)
+        axes[0].hist(counts, bins=bins, density=True, alpha=0.55,
+                     label=label, color=color, edgecolor="white")
+    axes[0].set_xlabel("Subword Fragments per Word")
+    axes[0].set_ylabel("Density")
+    axes[0].set_title("Subword Fragment Distribution")
+    axes[0].set_xticks(range(1, 6))
+    axes[0].set_xticklabels(["1", "2", "3", "4", "5+"])
+    axes[0].legend(frameon=False)
+
+    # ── Panel 2: per-task mean ± SD ───────────────────────────────────────────
+    tr_stats = oov_tr_df.groupby("task")["fragments"].agg(["mean", "std"]).reset_index()
+    en_stats = oov_en_df.groupby("task")["fragments"].agg(["mean", "std"]).reset_index()
+
+    all_tasks = sorted(set(tr_stats["task"]) | set(en_stats["task"]))
+    x         = np.arange(len(all_tasks))
+    w         = 0.35
+
+    def _task_vals(stats_df):
+        m = {r.task: r["mean"] for r in stats_df.itertuples()}
+        s = {r.task: r["std"]  for r in stats_df.itertuples()}
+        return [m.get(t, 0) for t in all_tasks], [s.get(t, 0) for t in all_tasks]
+
+    tr_m, tr_s = _task_vals(tr_stats)
+    en_m, en_s = _task_vals(en_stats)
+
+    axes[1].bar(x - w/2, tr_m, w, yerr=tr_s, label="Turkish",
+                color=_PALETTE["blue"],   alpha=0.8, capsize=4)
+    axes[1].bar(x + w/2, en_m, w, yerr=en_s, label="English",
+                color=_PALETTE["orange"], alpha=0.8, capsize=4)
+    axes[1].set_xticks(x)
+    axes[1].set_xticklabels(all_tasks, rotation=15, ha="right", fontsize=9)
+    axes[1].set_ylabel("Mean Fragments per Word")
+    axes[1].set_title("Fragmentation by Task")
+    axes[1].legend(frameon=False)
+
+    fig.suptitle("Subword Fragmentation: Turkish vs English", fontsize=13)
+    fig.tight_layout()
+    return _save(fig, save_dir, "fragmentation_comparison")
+
+
+def fig_quality_metrics(quality_df: pd.DataFrame, save_dir: Path) -> list:
+    """
+    Grouped bar chart of ROUGE-1/2/L (and BLEU where available) comparing
+    greedy baseline vs speculative decoding for each language/task.
+
+    quality_df must have columns: condition, metric, value.
+    """
+    if quality_df.empty:
+        return []
+
+    metrics  = quality_df["metric"].unique().tolist()
+    conds    = quality_df["condition"].unique().tolist()
+    n_m      = len(metrics)
+    x        = np.arange(n_m)
+    w        = 0.8 / max(len(conds), 1)
+    colors   = [_PALETTE["blue"], _PALETTE["orange"],
+                _PALETTE["green"], _PALETTE["purple"]] * 4
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+    for i, cond in enumerate(conds):
+        vals = [
+            quality_df.loc[quality_df["condition"] == cond,
+                           quality_df["metric"] == m if "metric" in quality_df.columns
+                           else quality_df.columns[0] == m].values
+            for m in metrics
+        ]
+        sub  = quality_df[quality_df["condition"] == cond]
+        yvals = [sub[sub["metric"] == m]["value"].mean() if not sub[sub["metric"] == m].empty
+                 else 0.0 for m in metrics]
+        ax.bar(x + i * w - (len(conds) - 1) * w / 2, yvals,
+               w * 0.9, label=cond, color=colors[i], alpha=0.8)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(metrics, fontsize=10)
+    ax.set_ylabel("Score")
+    ax.set_title("Output Quality: Greedy vs Speculative")
+    ax.legend(frameon=False, fontsize=9)
+    ax.set_ylim(0, 1.0)
+    fig.tight_layout()
+    return _save(fig, save_dir, "quality_metrics")
 
 
 def fig_position_acceptance(position_df: pd.DataFrame, save_dir: Path) -> list:
@@ -285,8 +410,10 @@ def generate_all_figures(results_dict: dict, save_dir) -> list:
     speculative_en      : pd.DataFrame   (English small-draft speculative)
     speculative_en_med  : pd.DataFrame   (English medium-draft speculative) [optional]
     ablation            : pd.DataFrame   (γ ablation runs)
-    morpheme_rejection  : pd.DataFrame   (output of compute_rejection_by_morpheme)
     position_acceptance : pd.DataFrame   (output of position_acceptance_analysis)
+    oov_tr              : pd.DataFrame   (output of oov_analysis for Turkish)
+    oov_en              : pd.DataFrame   (output of oov_analysis for English)
+    quality             : pd.DataFrame   (columns: condition, metric, value) [optional]
 
     Returns
     -------
@@ -302,14 +429,16 @@ def generate_all_figures(results_dict: dict, save_dir) -> list:
     spec_en_df       = results_dict.get("speculative_en")
     spec_en_med_df   = results_dict.get("speculative_en_med")
     ablation_df      = results_dict.get("ablation")
-    morpheme_df      = results_dict.get("morpheme_rejection")
     position_df      = results_dict.get("position_acceptance")
+    oov_tr_df        = results_dict.get("oov_tr")
+    oov_en_df        = results_dict.get("oov_en")
+    quality_df       = results_dict.get("quality")
 
-    # Conditions shown in distribution / boxplot figures
+    # Conditions shown in distribution / violin figures
     spec_cond: dict = {}
-    if spec_tr_df  is not None: spec_cond["TR-Small"]  = spec_tr_df
+    if spec_tr_df     is not None: spec_cond["TR-Small"]  = spec_tr_df
     if spec_tr_med_df is not None: spec_cond["TR-Medium"] = spec_tr_med_df
-    if spec_en_df  is not None: spec_cond["EN-Small"]  = spec_en_df
+    if spec_en_df     is not None: spec_cond["EN-Small"]  = spec_en_df
     if spec_en_med_df is not None: spec_cond["EN-Medium"] = spec_en_med_df
 
     # Baselines per condition (for speedup computation)
@@ -328,6 +457,11 @@ def generate_all_figures(results_dict: dict, save_dir) -> list:
             len(spec_cond) > 0,
         ),
         (
+            "fig_latency_violin",
+            lambda: fig_latency_violin(spec_cond, baseline_per_cond, save_dir),
+            len(spec_cond) > 0 and len(baseline_per_cond) > 0,
+        ),
+        (
             "fig_speedup_boxplot",
             lambda: fig_speedup_boxplot(spec_cond, baseline_df, save_dir),
             len(spec_cond) > 0 and baseline_df is not None,
@@ -338,11 +472,6 @@ def generate_all_figures(results_dict: dict, save_dir) -> list:
             ablation_df is not None,
         ),
         (
-            "fig_morpheme_rejection",
-            lambda: fig_morpheme_rejection(morpheme_df, save_dir),
-            morpheme_df is not None and not morpheme_df.empty,
-        ),
-        (
             "fig_position_acceptance",
             lambda: fig_position_acceptance(position_df, save_dir),
             position_df is not None and not position_df.empty,
@@ -351,6 +480,17 @@ def generate_all_figures(results_dict: dict, save_dir) -> list:
             "fig_model_comparison",
             lambda: fig_model_comparison(spec_cond, baseline_per_cond, save_dir),
             len(spec_cond) > 1,
+        ),
+        (
+            "fig_fragmentation_comparison",
+            lambda: fig_fragmentation_comparison(oov_tr_df, oov_en_df, save_dir),
+            oov_tr_df is not None and oov_en_df is not None
+            and not oov_tr_df.empty and not oov_en_df.empty,
+        ),
+        (
+            "fig_quality_metrics",
+            lambda: fig_quality_metrics(quality_df, save_dir),
+            quality_df is not None and not quality_df.empty,
         ),
     ]
 

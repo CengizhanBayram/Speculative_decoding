@@ -151,3 +151,42 @@ def fragmentation_acceptance_analysis(token_level_logs: list) -> pd.DataFrame:
             df.attrs["spearman_p"]    = float(p)
 
     return df
+
+
+def rejected_token_analysis(token_level_logs: list, top_n: int = 30) -> pd.DataFrame:
+    """
+    Frequency analysis of draft tokens that were rejected by the target model.
+
+    For each unique token string, counts total draft proposals and rejections
+    and computes a per-token rejection rate. Useful for identifying systematic
+    failure modes (e.g., certain suffixes, function words, punctuation).
+
+    Returns
+    -------
+    DataFrame with columns: token_str, total, rejected, rejection_rate.
+    Sorted by total proposals descending (most common first).
+    Top `top_n` rows returned.
+    """
+    from collections import Counter
+
+    total_counter:    Counter = Counter()
+    rejected_counter: Counter = Counter()
+
+    for log in token_level_logs:
+        for entry in log:
+            tok = entry.get("token_str", "")
+            total_counter[tok] += 1
+            if not entry.get("accepted", True):
+                rejected_counter[tok] += 1
+
+    rows = []
+    for tok, total in total_counter.most_common(top_n):
+        rejected = rejected_counter.get(tok, 0)
+        rows.append({
+            "token_str":      tok,
+            "total":          total,
+            "rejected":       rejected,
+            "rejection_rate": round(rejected / max(total, 1), 4),
+        })
+
+    return pd.DataFrame(rows)

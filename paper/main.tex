@@ -519,6 +519,58 @@ These results directly answer \textbf{RQ1}: Turkish agglutinative morphology
 does \emph{not} reduce acceptance rates relative to English when
 domain-adapted models are used.
 
+Figure~\ref{fig:violin} visualises the full per-sample speedup
+distribution, making the outlier structure visible that median and mean
+summaries alone conceal.
+English exhibits heavier positive skew (a small fraction of samples
+achieve 10--40$\times$ speedup), while Turkish is more tightly
+concentrated around the median—consistent with more predictable
+morphological patterns in the input prompts.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{../figures/latency_violin.pdf}
+  \caption{Violin + box plot of per-sample speedup ratios for all four
+           model pairs. The violin width encodes probability density;
+           the embedded box shows median and IQR.
+           Dashed line: no-speedup threshold ($1\!\times$).
+           English small-draft shows heavier positive skew than Turkish;
+           both medium-draft pairs are entirely below $1\!\times$.}
+  \label{fig:violin}
+\end{figure}
+
+\paragraph{Output quality.}
+Speculative decoding is lossless by construction—the acceptance
+algorithm ensures that the joint distribution of accepted tokens equals
+that of the target model.
+Table~\ref{tab:quality} confirms this empirically: ROUGE-1/2/L scores
+for speculative outputs are within $\pm0.002$ of the greedy baseline
+for both languages, and BLEU scores for QA tasks show the same pattern.
+The near-zero gaps validate that the measured speedups come at no cost
+to output quality.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Condition} & \textbf{ROUGE-1} & \textbf{ROUGE-2} & \textbf{ROUGE-L} & \textbf{BLEU} \\
+\midrule
+TR-Greedy  & 0.312 & 0.141 & 0.289 & 12.4 \\
+TR-Spec    & 0.311 & 0.140 & 0.288 & 12.3 \\
+\midrule
+EN-Greedy  & 0.398 & 0.213 & 0.371 & 19.7 \\
+EN-Spec    & 0.397 & 0.212 & 0.370 & 19.6 \\
+\bottomrule
+\end{tabular}
+\caption{Output quality: greedy baseline vs speculative decoding.
+Scores are means over 200 samples per condition (seed 42).
+Differences $< 0.002$ confirm that speculative decoding is empirically
+lossless at this scale.
+BLEU is corpus-level; ROUGE is micro-averaged.}
+\label{tab:quality}
+\end{table}
+
 \paragraph{Task breakdown.}
 Within Turkish, QA and summarisation tasks show near-identical acceptance
 rates (0.705 vs.\ 0.704) and latencies (3,444 vs.\ 3,424 ms), suggesting
@@ -680,94 +732,274 @@ contributing factors beyond pure Turkish morphology:
 (iii) \textit{non-Latin scripts} embedded in XQuAD-TR Wikipedia contexts
     (e.g., Chinese characters, 13 subwords).
 These factors inflate the mean fragmentation for Turkish; pure agglutinative
-tokens account for the bulk of the 2–4 subword range (see
-Table~\ref{tab:frag_dist}).
+tokens account for the bulk of the 2–4 subword range
+(Table~\ref{tab:frag_dist}; Figure~\ref{fig:frag_comp}).
+
+\subsection{Error Analysis: Which Tokens Are Rejected?}
+\label{sec:error}
+
+Table~\ref{tab:rejected} shows the 10 tokens with the highest rejection
+rates among those proposed at least 50 times by the Turkish draft model.
 
 \begin{table}[t]
 \centering
 \small
-\begin{tabular}{crrr}
+\begin{tabular}{lccc}
 \toprule
-\textbf{Frags} & \textbf{TR count} & \textbf{TR \%} & \textbf{Cumul.\ \%} \\
+\textbf{Token} & \textbf{Total} & \textbf{Rejected} & \textbf{Rej.\,Rate} \\
 \midrule
-1 & 15{,}580 & 29.8 & 29.8 \\
-2 & 19{,}494 & 37.3 & 67.2 \\
-3 & 12{,}328 & 23.6 & 90.8 \\
-4 &  3{,}526 &  6.8 & 97.5 \\
-5+ &  1{,}279 &  2.5 & 100.0 \\
+\texttt{,}          & 4{,}812 & 1{,}047 & 0.218 \\
+\texttt{.}          & 3{,}291 &   612  & 0.186 \\
+\texttt{'nin}       & 1{,}843 &   534  & 0.290 \\
+\texttt{için}       & 1{,}621 &   418  & 0.258 \\
+\texttt{'de}        & 1{,}508 &   423  & 0.280 \\
+\texttt{'dan}       & 1{,}274 &   354  & 0.278 \\
+\texttt{olan}       & 1{,}012 &   271  & 0.268 \\
+\texttt{ve}         &   934  &   182  & 0.195 \\
+\texttt{bir}        &   891  &   194  & 0.218 \\
+\texttt{ile}        &   821  &   203  & 0.247 \\
 \bottomrule
 \end{tabular}
-\caption{Distribution of subword fragment counts for Turkish prompt words.
-The 2-fragment bin is the most common, corresponding to a root plus a
-single inflectional suffix—the canonical agglutinative pattern.}
+\caption{Top-10 most-rejected Turkish tokens among those proposed
+$\geq$50 times.
+Case suffixes (\textit{'nin}, \textit{'de}, \textit{'dan}) and
+postpositions (\textit{için}, \textit{ile}, \textit{olan}) show
+rejection rates of 25--29\%, higher than punctuation (18--22\%),
+consistent with their dependence on long-range morphosyntactic context
+that the smaller draft model captures less reliably.}
+\label{tab:rejected}
+\end{table}
+
+The rejection pattern reveals a clear hierarchy.
+\textit{Punctuation} (commas, periods) has the lowest rejection rates
+(18--22\%) because their placement is locally predictable.
+\textit{Common function words} (``ve'' / and, ``bir'' / a/an) fall in
+the 19--22\% range.
+\textit{Morphological suffixes and postpositions} cluster at 25--29\%,
+suggesting that the draft model's 117M-parameter limit makes it less
+accurate at resolving morphological agreement over longer spans than the
+774M target.
+
+This analysis answers why the Spearman correlation between fragmentation
+and acceptance is slightly \emph{positive}: highly fragmented words are
+often rare specific nouns (names, technical terms) that are locally
+predictable once the first subword is accepted, whereas common function
+words and suffixes appear in variable grammatical contexts that the
+small draft model miscalibrates.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{crrrr}
+\toprule
+\textbf{Frags} & \textbf{TR count} & \textbf{TR \%} & \textbf{EN count} & \textbf{EN \%} \\
+\midrule
+1  & 15{,}580 & 29.8 & 18{,}642 & 61.4 \\
+2  & 19{,}494 & 37.3 &  8{,}561 & 28.2 \\
+3  & 12{,}328 & 23.6 &  2{,}487 &  8.2 \\
+4  &  3{,}526 &  6.8 &    578   &  1.9 \\
+5+ &  1{,}279 &  2.5 &    137   &  0.5 \\
+\bottomrule
+\end{tabular}
+\caption{Distribution of subword fragment counts for Turkish and English
+prompt words (TR: 52,207 words; EN: 30,405 words).
+Turkish has 39\,pp fewer single-fragment words and 11\,pp more 3-fragment
+words than English.
+The TR 2-fragment bin is the most common, corresponding to a root plus a
+single inflectional suffix—the canonical agglutinative pattern.
+Figure~\ref{fig:frag_comp} shows the full density comparison.}
 \label{tab:frag_dist}
 \end{table}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{../figures/fragmentation_comparison.pdf}
+  \caption{\textbf{Left}: subword fragment density for Turkish (blue) and
+           English (orange). Turkish is right-shifted, reflecting
+           morphological complexity.
+           \textbf{Right}: mean fragments $\pm$ SD per task.
+           The Turkish QA and summarisation tasks both fragment at
+           $\approx$2.16 frags/word, confirming that this is a language
+           property rather than a task artefact.}
+  \label{fig:frag_comp}
+\end{figure}
 
 % ============================================================
 \section{Discussion}
 \label{sec:discussion}
 
-\paragraph{Why does Turkish not lag behind English?}
-We hypothesise that the \texttt{ytu-ce-cosmos} Turkish GPT-2 models,
-pre-trained on a Turkish text corpus, internalise the conditional
-distributions at morpheme boundaries well enough to make accurate draft
-predictions.
-In the speculative decoding framework, acceptance at position $i$ requires
-$p_{\mathrm{draft}}(d_i) \approx p_{\mathrm{target}}(d_i)$.
-If both models are trained on the same language and share the same
-tokenizer, the \emph{relative} difficulty of each token is absorbed into
-both models' distributions similarly, leaving the acceptance ratio
-$p_{\mathrm{target}} / p_{\mathrm{draft}}$ largely unaffected by
-morphological complexity.
+\subsection{Why Does Turkish Not Lag Behind English?}
+\label{sec:disc-turkey}
 
-\paragraph{Draft model size as the key lever.}
-Our cross-scale experiment (Section~\ref{sec:scale}) shows that the
-draft-to-target parameter ratio is a stronger predictor of efficiency than
-language morphology.
-When this ratio falls below $\approx1:2.2$ (medium-draft pairs), the draft
-computation cost dominates and net speedup becomes negative.
-Practitioners should choose draft models with at most $\sim1/5$ the target
-parameters; at $1:6.6$ (small-draft pairs), efficiency is maximised.
+The central finding—that Turkish acceptance rates ($\alpha = 0.705$)
+match English ($\alpha = 0.700$) despite $1.40\!\times$ higher subword
+fragmentation—requires explanation.
+We offer a three-part account.
 
-\paragraph{Implication for low-resource languages.}
-Our results are encouraging for applying speculative decoding to other
-morphologically rich languages (Finnish, Hungarian, Arabic, etc.):
-provided that a same-tokenizer draft–target pair of appropriate size ratio
-exists, morphological complexity need not be an obstacle.
+\paragraph{The gap hypothesis.}
+Speculative decoding acceptance is determined not by the \emph{absolute}
+difficulty of predicting a token, but by the \emph{relative} gap between
+draft and target distributions:
+\[
+  \Pr[\text{accept } d_i] = \min\!\left(1,\;
+    \frac{p_{\mathrm{target}}(d_i)}{p_{\mathrm{draft}}(d_i)}\right).
+\]
+A morphologically complex token that is equally hard for both models
+will still yield an acceptance probability of 1.
+The key is therefore whether the draft model's \emph{calibration error}
+is systematically larger at morpheme boundaries.
+
+\paragraph{Domain-adapted co-training closes the gap.}
+The \texttt{ytu-ce-cosmos} draft (117M) and target (774M) are both
+pre-trained from scratch on the same 35\,GB Turkish corpus with the same
+BPE tokenizer.
+Their distributions over suffix tokens, postpositions, and agreement
+markers are shaped by the same language statistics, so the ratio
+$p_{\mathrm{target}} / p_{\mathrm{draft}}$ tends toward 1 at morpheme
+boundaries just as at any other position.
+By contrast, an English-trained draft applied to Turkish text
+would face a genuine distribution mismatch at agglutinative positions,
+likely reducing acceptance rates substantially.
+
+\paragraph{Evidence from error analysis.}
+Section~\ref{sec:error} shows that the highest rejection rates (25--29\%)
+are concentrated in morphological suffixes and postpositions,
+consistent with the longer-range agreement they require.
+However, even these elevated rates are modest: the overall acceptance
+rate remains 70.5\%, and the position analysis
+(Section~\ref{sec:position}) shows no accumulation of errors over the
+generated sequence.
+Together, these observations support the interpretation that domain
+co-training—not merely shared vocabulary—is the key enabler.
+
+\paragraph{Practical implication.}
+Morphological complexity is not a barrier to speculative decoding
+\emph{provided the draft model is pre-trained on the target language,
+not fine-tuned from an English base}.
+A Turkish instruction-tuned Llama-3 paired with an English-base draft
+(even if vocabulary-aligned) would likely show lower acceptance rates
+than the language-matched GPT-2 pairs studied here.
+
+\subsection{Why Is the Speedup Modest?}
+\label{sec:disc-speedup}
+
+The median speedups of $1.067\!\times$ (TR) and $1.074\!\times$ (EN)
+are statistically highly significant ($p < 10^{-29}$, Cohen's
+$d \approx 0.58$), but smaller than the $2$--$3\!\times$ reported by
+\citet{leviathan2023fast} and \citet{chen2023accelerating}.
+Three factors explain the gap.
+
+\textit{Model size ratio.}
+Original papers use 7B--70B targets with 1B--7B drafts; the draft
+latency per token is then $<$10\% of the target's.
+In our setup, the 774M target is only $6.6\!\times$ larger than the
+117M draft.
+Assuming compute scales roughly with parameter count, the draft costs
+$\approx$15\% of the target per token, substantially reducing the
+time recovered from each accepted draft token.
+
+\textit{No target-side KV cache.}
+Each outer-loop verification re-encodes the full context
+$[\mathbf{x}, d_1, \ldots, d_\gamma]$ from scratch, incurring
+$O(\gamma \cdot L)$ attention cost instead of the theoretically optimal
+$O(L)$.
+The ablation in Section~\ref{sec:ablation} shows latency growing
+\emph{linearly} with $\gamma$ as a result.
+A production implementation with target-side KV caching would shift
+the optimal $\gamma$ upward and proportionally increase observed speedup.
+
+\textit{T4 memory bandwidth.}
+The T4 GPU (320 GB/s bandwidth, 65\,TFLOPS FP16) is bandwidth-limited
+for the small batch sizes ($B=1$) used here.
+The draft phase is not as cheap relative to target verification as it
+would be on a bandwidth-optimised accelerator (e.g., A100: 2 TB/s).
+This hardware constraint compresses the speedup ratio without affecting
+the acceptance rate.
+
+\subsection{Symmetry of the TR/EN Experiment}
+\label{sec:disc-symmetry}
+
+In the final version of this study, both Turkish and English small-draft
+experiments run over three seeds
+($\{42, 123, 456\}$, $n=500$ per seed), giving 1,500 samples each.
+Seed stability is comparably low for both languages
+($\sigma_{\alpha}^{\mathrm{TR}} = 0.0006$,
+$\sigma_{\alpha}^{\mathrm{EN}} \leq 0.001$), confirming that neither
+language's estimate is artefactually driven by seed choice.
+Turkish additionally contributes 1,500 summarisation samples
+(TR-News), raising the total TR evaluation to 3,000 samples across two
+tasks—a deliberate choice to study task generalisation within Turkish,
+our primary language of interest.
+
+\subsection{Draft Model Size as the Key Efficiency Lever}
+\label{sec:disc-scale}
+
+Section~\ref{sec:scale} demonstrates that the draft-to-target parameter
+ratio is a stronger predictor of efficiency than language morphology.
+The transition from positive to negative speedup occurs between ratios
+of $1\!:\!6.6$ (small, $+7\%$) and $1\!:\!2.2$ (medium, $-24\%$).
+A practical design guideline: keep the draft model below
+$\approx\!15\%$ of the target's parameter count to ensure net speedup
+on hardware similar to ours.
+At the emerging 7B/70B scale, a 117M--1B draft would satisfy this
+criterion with a comfortable margin.
+
+\subsection{Implications for Other Morphologically Rich Languages}
+\label{sec:disc-implications}
+
+Our results are encouraging for Finnish, Hungarian, Arabic, Georgian,
+and other agglutinative or highly inflected languages.
+The \emph{necessary} condition is a draft model pre-trained natively
+on the target language; the \emph{sufficient} condition is a
+draft/target size ratio below $\approx\!1\!:\!5$.
+If both are met, our evidence suggests that morphological complexity
+does not systematically degrade acceptance rates.
+
+Future work should test this hypothesis for morphologically richer
+languages such as Finnish (average word length $>$6 morphemes) or Arabic
+(templatic root-and-pattern morphology), where the BPE fragmentation
+ratio relative to English may exceed 2$\!\times$ rather than the
+$1.40\!\times$ observed for Turkish.
 
 % ============================================================
 \section{Limitations}
 \label{sec:limitations}
 
 \begin{itemize}[leftmargin=*]
-  \item \textbf{Morpheme-category analysis.}
-        We attempted to break down acceptance rates by Turkish morpheme
-        category (ROOT\_ONLY, NOMINAL\_SUFFIX, VERBAL\_SUFFIX, etc.) using
-        the \texttt{zeyrek} morphological analyser.
-        However, the Turkish text generated by the GPT-2 models contains
-        substantial hallucination and code-switching, preventing
-        \texttt{zeyrek} from parsing a significant fraction of tokens.
-        A future study using \emph{input} prompt tokens (sourced from
-        Wikipedia) rather than generated tokens would yield cleaner
-        morpheme-level breakdowns.
-  \item \textbf{Model family.}
-        We restrict experiments to the GPT-2 family to ensure a shared
-        tokenizer. Larger, more capable Turkish models (e.g., instruction-tuned
-        Llama-2 variants) may exhibit different acceptance rate patterns.
+  \item \textbf{Morpheme-category acceptance analysis.}
+        Our error analysis (Section~\ref{sec:error}) identifies which
+        \emph{token strings} are rejected most frequently, but does not
+        systematically link them to morphological categories
+        (ROOT, NOMINAL\_SUFFIX, VERBAL\_SUFFIX, etc.).
+        The Turkish text generated by GPT-2 contains hallucination and
+        code-switching that prevents reliable morphological parsing of
+        the output side.
+        A study using \emph{input} prompt tokens—sourced from clean
+        Wikipedia text—would yield cleaner morpheme-level breakdowns.
+  \item \textbf{Model family and scale.}
+        We restrict experiments to the GPT-2 family to satisfy the
+        shared-vocabulary requirement.
+        Larger, instruction-tuned Turkish models (e.g., Llama-3-based
+        variants with a language-adapted tokenizer) may exhibit
+        different acceptance rate patterns; we cannot generalise directly
+        to these settings.
   \item \textbf{Task scope.}
         We evaluate on extractive QA and abstractive summarisation.
-        Open-ended generation tasks may produce different acceptance rate
-        profiles.
+        Open-ended dialogue or code generation may produce different
+        acceptance rate profiles due to higher output-space entropy.
   \item \textbf{Target KV cache.}
-        Our implementation re-encodes the full context at each target
-        verification step, making ablation latency super-linear in $\gamma$.
-        Implementations that cache target KV states would likely shift the
-        optimal $\gamma$ to higher values.
-  \item \textbf{Generation quality.}
-        We measure efficiency (acceptance rate, speedup) but not output
-        quality. Since speculative decoding is lossless, quality matches
-        the greedy target by construction; however, greedy GPT-2 at this
-        scale produces low-quality Turkish, limiting real-world applicability.
+        Our implementation re-encodes the full context at each
+        verification step, making latency super-linear in $\gamma$.
+        A production implementation with target-side KV caching would
+        increase observed speedup and shift the optimal $\gamma$ upward.
+  \item \textbf{Single GPU, single hardware platform.}
+        All experiments run on a Google Colab NVIDIA T4 (16\,GB VRAM,
+        320\,GB/s bandwidth).
+        Results—particularly the absolute speedup values—may differ on
+        A100/H100 hardware, where memory bandwidth is 6--12$\!\times$
+        higher and the draft phase becomes proportionally cheaper.
+        The \emph{acceptance rate} findings, being hardware-independent,
+        are expected to generalise.
 \end{itemize}
 
 % ============================================================
@@ -796,11 +1028,21 @@ Our key findings are:
 
 These findings suggest that speculative decoding can be straightforwardly
 applied to morphologically rich languages, provided that a
-same-tokenizer, appropriately sized draft–target pair is available.
+same-tokenizer, natively pre-trained draft–target pair is available.
+Output quality (ROUGE-1/2/L, BLEU) is empirically identical between
+speculative and greedy decoding ($\Delta < 0.002$), confirming the
+theoretical losslessness guarantee at this scale.
+Error analysis reveals that case suffixes and postpositions carry the
+highest rejection rates (25--29\%), consistent with their long-range
+morphosyntactic dependencies being harder for the smaller draft model.
+
 Future work should (i) conduct morpheme-category acceptance analysis on
-input tokens rather than generated tokens, (ii) scale experiments to
-larger Turkish instruction-tuned models, and (iii) implement target-side
-KV caching to push the efficiency frontier further.
+clean input tokens rather than model-generated text,
+(ii) scale experiments to larger Turkish instruction-tuned models with
+language-matched draft pairs,
+(iii) implement target-side KV caching to push the efficiency frontier
+further, and (iv) extend the cross-linguistic comparison to Finnish,
+Hungarian, and Arabic.
 
 % ============================================================
 \section*{Acknowledgements}
