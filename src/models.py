@@ -6,17 +6,39 @@ from transformers import (
 )
 
 
-def load_draft_model(name: str, device: str) -> tuple:
-    """Load a small draft model in float16 for speculative decoding."""
+def _make_bnb_config(bits: int) -> BitsAndBytesConfig:
+    if bits == 8:
+        return BitsAndBytesConfig(load_in_8bit=True)
+    return BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_use_double_quant=True,
+        bnb_4bit_compute_dtype=torch.float16,
+    )
+
+
+def load_draft_model(name: str, device: str, bits: int = 0) -> tuple:
+    """
+    Load a draft model for speculative decoding.
+
+    bits=0  → float16, no quantization (default; suitable for models ≤ ~2 B params)
+    bits=4  → 4-bit NF4 via BitsAndBytes (for larger drafts)
+
+    For Llama / Qwen models, trust_remote_code is enabled automatically.
+    """
     tokenizer = AutoTokenizer.from_pretrained(name, use_fast=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    model = AutoModelForCausalLM.from_pretrained(
-        name,
-        torch_dtype=torch.float16,
-        device_map={"": device},
-    )
+    kwargs = dict(trust_remote_code=True)
+    if bits in (4, 8):
+        kwargs["quantization_config"] = _make_bnb_config(bits)
+        kwargs["device_map"] = "auto"
+    else:
+        kwargs["torch_dtype"] = torch.float16
+        kwargs["device_map"] = {"": device}
+
+    model = AutoModelForCausalLM.from_pretrained(name, **kwargs)
     model.eval()
     return model, tokenizer
 
@@ -33,27 +55,12 @@ def load_target_model(name: str, bits: int = 0) -> tuple:
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
+    kwargs = dict(device_map="auto", trust_remote_code=True)
     if bits in (4, 8):
-        if bits == 8:
-            bnb_config = BitsAndBytesConfig(load_in_8bit=True)
-        else:
-            bnb_config = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_quant_type="nf4",
-                bnb_4bit_use_double_quant=True,
-                bnb_4bit_compute_dtype=torch.float16,
-            )
-        model = AutoModelForCausalLM.from_pretrained(
-            name,
-            quantization_config=bnb_config,
-            device_map="auto",
-        )
+        kwargs["quantization_config"] = _make_bnb_config(bits)
     else:
-        model = AutoModelForCausalLM.from_pretrained(
-            name,
-            torch_dtype=torch.float16,
-            device_map="auto",
-        )
+        kwargs["torch_dtype"] = torch.float16
 
+    model = AutoModelForCausalLM.from_pretrained(name, **kwargs)
     model.eval()
     return model, tokenizer

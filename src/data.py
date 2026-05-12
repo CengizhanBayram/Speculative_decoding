@@ -89,6 +89,75 @@ def load_trnews(n: int, seed: int) -> list:
     return samples
 
 
+def load_xquad_tr_instruct(n: int, seed: int) -> list:
+    """
+    Turkish QA samples formatted for instruction-tuned models (Llama / Qwen chat style).
+
+    Uses a system prompt + user turn structure that instruction-tuned models
+    respond to reliably, rather than the raw completion format used for GPT-2.
+    """
+    candidates = [
+        ("google/xquad",                          "xquad.tr", "validation"),
+        ("boun-tabilab/XQuAD-TR",                 None,       "validation"),
+        ("gorkemgoknar/tr-nlp-qa-xquad-trquad",  None,       "train"),
+    ]
+    ds = None
+    for name, config, split in candidates:
+        try:
+            ds = load_dataset(name, config, split=split) if config \
+                 else load_dataset(name, split=split)
+            break
+        except Exception:
+            continue
+    if ds is None:
+        raise RuntimeError("Could not load XQuAD-TR for instruction format.")
+
+    ds = ds.shuffle(seed=seed).select(range(min(n, len(ds))))
+    samples = []
+    for item in ds:
+        question  = item.get("question", "")
+        context   = item.get("context",  "")
+        answers   = item.get("answers",  {})
+        ref_list  = answers.get("text", []) if isinstance(answers, dict) else []
+        reference = ref_list[0] if ref_list else ""
+        prompt = (
+            "<|system|>\nSen bir Türkçe soru-cevap asistanısın.\n<|user|>\n"
+            f"Bağlam: {context[:300]}\n\nSoru: {question}\n<|assistant|>\nCevap:"
+        )
+        samples.append({"prompt": prompt, "reference": reference, "task": "qa_tr_instruct"})
+    return samples
+
+
+def load_squad_en_instruct(n: int, seed: int) -> list:
+    """
+    English SQuAD samples formatted for instruction-tuned models (Qwen / Llama chat style).
+    """
+    ds = None
+    for name in ("rajpurkar/squad", "squad"):
+        try:
+            ds = load_dataset(name, split="validation")
+            break
+        except Exception:
+            continue
+    if ds is None:
+        raise RuntimeError("Could not load SQuAD for instruction format.")
+
+    ds = ds.shuffle(seed=seed).select(range(min(n, len(ds))))
+    samples = []
+    for item in ds:
+        question  = item.get("question", "")
+        context   = item.get("context",  "")
+        answers   = item.get("answers",  {})
+        ref_list  = answers.get("text", []) if isinstance(answers, dict) else []
+        reference = ref_list[0] if ref_list else ""
+        prompt = (
+            "<|system|>\nYou are a helpful QA assistant.\n<|user|>\n"
+            f"Context: {context[:300]}\n\nQuestion: {question}\n<|assistant|>\nAnswer:"
+        )
+        samples.append({"prompt": prompt, "reference": reference, "task": "qa_en_instruct"})
+    return samples
+
+
 def load_squad_en(n: int, seed: int) -> list:
     """
     Load SQuAD English QA dataset.

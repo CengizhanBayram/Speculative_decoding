@@ -424,22 +424,28 @@ def generate_all_figures(results_dict: dict, save_dir) -> list:
 
     baseline_df      = results_dict.get("baseline")
     baseline_en_df   = results_dict.get("baseline_en")
+    baseline_llama   = results_dict.get("baseline_llama")
+    baseline_qwen    = results_dict.get("baseline_qwen")
     spec_tr_df       = results_dict.get("speculative_tr")
     spec_tr_med_df   = results_dict.get("speculative_tr_med")
     spec_en_df       = results_dict.get("speculative_en")
     spec_en_med_df   = results_dict.get("speculative_en_med")
+    spec_llama_df    = results_dict.get("speculative_llama")
+    spec_qwen_df     = results_dict.get("speculative_qwen")
     ablation_df      = results_dict.get("ablation")
     position_df      = results_dict.get("position_acceptance")
     oov_tr_df        = results_dict.get("oov_tr")
     oov_en_df        = results_dict.get("oov_en")
     quality_df       = results_dict.get("quality")
 
-    # Conditions shown in distribution / violin figures
+    # All speculative conditions for distribution / violin figures
     spec_cond: dict = {}
     if spec_tr_df     is not None: spec_cond["TR-Small"]  = spec_tr_df
     if spec_tr_med_df is not None: spec_cond["TR-Medium"] = spec_tr_med_df
     if spec_en_df     is not None: spec_cond["EN-Small"]  = spec_en_df
     if spec_en_med_df is not None: spec_cond["EN-Medium"] = spec_en_med_df
+    if spec_llama_df  is not None: spec_cond["Llama-1B→8B"] = spec_llama_df
+    if spec_qwen_df   is not None: spec_cond["Qwen-0.5B→7B"] = spec_qwen_df
 
     # Baselines per condition (for speedup computation)
     baseline_per_cond: dict = {}
@@ -449,6 +455,10 @@ def generate_all_figures(results_dict: dict, save_dir) -> list:
     if baseline_en_df is not None:
         if "EN-Small"  in spec_cond: baseline_per_cond["EN-Small"]  = baseline_en_df
         if "EN-Medium" in spec_cond: baseline_per_cond["EN-Medium"] = baseline_en_df
+    if baseline_llama is not None:
+        if "Llama-1B→8B"  in spec_cond: baseline_per_cond["Llama-1B→8B"]  = baseline_llama
+    if baseline_qwen is not None:
+        if "Qwen-0.5B→7B" in spec_cond: baseline_per_cond["Qwen-0.5B→7B"] = baseline_qwen
 
     _attempts = [
         (

@@ -23,6 +23,23 @@ DRAFT_MODEL_EN_SMALL_NAME  = "gpt2"         # ~117 M (draft — small)
 DRAFT_MODEL_EN_MEDIUM_NAME = "gpt2-medium"  # ~354 M (draft — medium)
 TARGET_MODEL_EN_NAME       = "gpt2-large"   # ~774 M (target — shared)
 
+# ── Llama-3 family ────────────────────────────────────────────────────────────
+# All Llama-3 models share the same tokenizer (128,256 tokens, tiktoken-based).
+# Turkish-Llama-8b is fine-tuned from Llama-3.1-8B → tokenizer is identical.
+# Draft runs in float16 (1B ≈ 2 GB); target needs 4-bit NF4 (8B ≈ 4 GB on T4).
+DRAFT_MODEL_LLAMA_NAME  = "meta-llama/Llama-3.2-1B"
+TARGET_MODEL_LLAMA_NAME = "ytu-ce-cosmos/Turkish-Llama-8b-Instruct-v0.1"
+QUANTIZATION_BITS_LLAMA = 4   # 8B target: 4-bit required on 16 GB T4
+
+# ── Qwen2.5 family ────────────────────────────────────────────────────────────
+# Qwen2.5 (0.5B → 72B) shares a single tokenizer (151,936 tokens).
+# Draft: Turkish-SFT Qwen2.5-0.5B; Target: Qwen2.5-7B-Instruct (multilingual).
+# Cross-lingual pair: measures whether TR-adapted draft generalises to a
+# multilingual target that was never specifically Turkish-trained.
+DRAFT_MODEL_QWEN_NAME   = "ytu-ce-cosmos/tr-Qwen2.5-0.5B-SFT-v1"
+TARGET_MODEL_QWEN_NAME  = "Qwen/Qwen2.5-7B-Instruct"
+QUANTIZATION_BITS_QWEN  = 4   # 7B target: 4-bit fits on T4 (~3.5 GB)
+
 # ── Backwards-compatible aliases ──────────────────────────────────────────────
 DRAFT_MODEL_NAME    = DRAFT_MODEL_TR_SMALL_NAME
 TARGET_MODEL_NAME   = TARGET_MODEL_TR_NAME
@@ -34,9 +51,11 @@ DRAFT_STEPS_LIST    = [1, 3, 5, 7, 10]   # γ values for ablation study
 DEFAULT_DRAFT_STEPS = 5                   # γ used in main experiments
 
 # ── Dataset sizes ─────────────────────────────────────────────────────────────
-NUM_SAMPLES_QA  = 500   # XQuAD-TR (Turkish QA)
-NUM_SAMPLES_SUM = 500   # TR-News  (Turkish summarisation)
-NUM_SAMPLES_EN  = 500   # SQuAD    (English QA)
+NUM_SAMPLES_QA    = 500   # XQuAD-TR (Turkish QA)
+NUM_SAMPLES_SUM   = 500   # TR-News  (Turkish summarisation)
+NUM_SAMPLES_EN    = 500   # SQuAD    (English QA)
+NUM_SAMPLES_LLAMA = 300   # fewer samples — 8B model is slower per sample
+NUM_SAMPLES_QWEN  = 300   # fewer samples — 7B model is slower per sample
 
 # 0 = float16, no quantization (suitable for GPT-2-scale models ≤ 1 B params)
 # Set to 4 or 8 for larger models to enable BitsAndBytes quantization.
