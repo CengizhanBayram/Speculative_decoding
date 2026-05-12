@@ -16,4 +16,3 @@ pandas
 numpy
 tqdm
 pyyaml
-zeyrek
