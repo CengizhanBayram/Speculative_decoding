@@ -1,6 +1,6 @@
 # Speculative Decoding for Turkish NLP
 
-> A publication-ready research codebase investigating speculative decoding efficiency on Turkish and English language tasks, with morphological analysis of token acceptance rates.
+> A publication-ready research codebase investigating speculative decoding efficiency across Turkish and English language tasks, with morphological analysis of token acceptance rates.
 
 ---
 
@@ -30,18 +30,23 @@
 
 This repository studies speculative decoding specifically in the context of **agglutinative Turkish morphology**, hypothesising that Turkish's complex suffix chains cause systematically lower draft-token acceptance rates compared to English — and quantifying that gap with rigorous statistics and linguistic analysis.
 
+The implementation uses a **target-side KV cache**: the target model is initialised once on the full prompt (O(L) cost) and thereafter called only on the γ draft tokens per iteration (O(γ)), eliminating the O(L) re-encoding cost of a naive implementation and making latency much less sensitive to generation length.
+
 ---
 
 ## Key Contributions
 
-- Full implementation of the **accept/reject speculative decoding algorithm** (Leviathan et al., 2023) with per-token logging.
-- Controlled comparison between **Turkish QA** (XQuAD-TR), **Turkish summarisation** (TR-News), and **English QA** (SQuAD) tasks.
-- **Morpheme-category rejection analysis** using `zeyrek` — the first study to break down acceptance rates by Turkish morphological category (ROOT\_ONLY, NOMINAL\_SUFFIX, VERBAL\_SUFFIX, DERIVATIONAL, COMPOUND).
+- Full implementation of the **accept/reject speculative decoding algorithm** (Leviathan et al., 2023) with target-side KV cache and per-token logging.
+- Controlled comparison across **6 model pairs**: Turkish GPT-2 small/medium, English GPT-2 small/medium, Llama-3 (1B→8B), and Qwen2.5 (0.5B→7B).
+- **3-seed robustness runs** for TR-small, EN-small, Llama, and Qwen primary conditions to quantify variance.
+- **Cross-lingual pair**: Turkish-SFT Qwen2.5-0.5B draft vs multilingual Qwen2.5-7B-Instruct target — tests whether a Turkish-adapted draft generalises to a multilingual target.
 - **Position-bucket analysis**: acceptance rates across early / mid / late token positions.
-- **OOV fragmentation analysis**: Spearman correlation between subword fragment counts in draft vs. target vocabularies.
+- **Subword fragmentation analysis**: Spearman correlation between fragment count and per-word acceptance rate; cross-linguistic comparison of Turkish vs English morphological complexity.
+- **Rejected-token frequency analysis**: identifies systematic draft failure modes by surface form.
 - **Ablation study** over draft steps γ ∈ {1, 3, 5, 7, 10}.
+- **Output quality validation**: ROUGE-1/2/L + BLEU comparing greedy vs speculative outputs to verify losslessness in practice.
 - Complete statistical battery: Wilcoxon signed-rank, Mann-Whitney U, Cohen's d, bootstrap confidence intervals.
-- Five publication-quality figures (PDF + PNG, 300 dpi, serif font).
+- Eight publication-quality figures (PDF + PNG, 300 dpi, serif font).
 
 ---
 
@@ -70,14 +75,14 @@ Speculative_decoding/
 │   ├── __init__.py          # empty
 │   ├── config.py            # all constants and hyperparameters
 │   ├── utils.py             # seed_everything, save_json, check_gpu, git_push
-│   ├── data.py              # dataset loaders: TQuAD, TR-News, SQuAD-EN
-│   ├── models.py            # draft (float16) and target (NF4) model loaders
-│   ├── speculative.py       # accept/reject algorithm, greedy, beam, run_experiment
+│   ├── data.py              # dataset loaders: XQuAD-TR, TR-News, SQuAD-EN (GPT-2 + instruct formats)
+│   ├── models.py            # draft (float16) and target (float16 / NF4) model loaders
+│   ├── speculative.py       # accept/reject algorithm + target KV cache, greedy, beam, run_experiment
 │   ├── metrics.py           # ROUGE, BLEU, bootstrap CI, Wilcoxon, Cohen d, speedup
-│   ├── linguistic.py        # morpheme categorisation, rejection/position/OOV analysis
-│   └── figures.py           # 5 publication-quality figure generators
+│   ├── linguistic.py        # position/fragmentation/rejection analysis
+│   └── figures.py           # 8 publication-quality figure generators
 │
-├── run_experiments.ipynb    # zero-logic Colab notebook (17 cells)
+├── run_experiments.ipynb    # zero-logic Colab notebook (28 cells)
 ├── requirements.txt
 ├── .gitignore
 └── README.md
@@ -89,8 +94,8 @@ Speculative_decoding/
 
 ### Option A — Google Colab (recommended)
 
-1. Open `run_experiments.ipynb` in Google Colab (T4/A100 GPU runtime).
-2. In **Cell 1**, fill in your tokens directly:
+1. Open `run_experiments.ipynb` in Google Colab with a **T4 or A100 GPU runtime**.
+2. In **Cell 1**, fill in your tokens:
    ```python
    HF_TOKEN = "hf_..."   # Hugging Face access token (read scope)
    GH_TOKEN = "ghp_..."  # GitHub Personal Access Token (repo scope)
@@ -105,35 +110,53 @@ cd Speculative_decoding
 pip install -r requirements.txt
 ```
 
-> **Minimum hardware:** NVIDIA GPU with ≥ 6 GB VRAM (gpt2-large ~1.5 GB, turkish-gpt2-large ~1.5 GB in float16).  
-> Tested on: T4 16 GB (Colab free tier), A100 40 GB (Colab Pro+).
+**Minimum hardware:**
+
+| Experiment | VRAM needed |
+|------------|-------------|
+| GPT-2 scale (all four pairs) | ≥ 4 GB |
+| Llama-3.2-1B → Turkish-Llama-8B (4-bit) | ≥ 6 GB |
+| Qwen2.5-0.5B → Qwen2.5-7B-Instruct (4-bit) | ≥ 5 GB |
+
+Tested on: T4 16 GB (Colab free tier), A100 40 GB (Colab Pro+).
 
 ---
 
 ## Running Experiments
 
-The entire experiment pipeline is orchestrated by `run_experiments.ipynb`:
+The entire pipeline is orchestrated by `run_experiments.ipynb`. Cells are ordered for sequential execution; model-memory management cells (6e, 6f) free GPU memory before loading the next model family.
 
 | Cell | Action | Output |
 |------|--------|--------|
 | 1 | Mount Drive, enter tokens, HF login | — |
 | 2 | Clone / pull repo, `pip install` | — |
-| 3 | `sys.path` + imports from `src/` | — |
+| 3 | `sys.path` + all imports from `src/` | — |
 | 4 | `seed_everything(42)`, `check_gpu()` | GPU info dict |
-| 5 | Load TQuAD + TR-News + SQuAD-EN | 3 × list[dict] |
-| 6 | Load Turkish draft + target models | 2 models |
-| 6b | Load English draft + target models | 2 models |
+| 5 | Load datasets: XQuAD-TR, TR-News, SQuAD-EN, instruct formats | 4 × list[dict] |
+| 6 | Load TR-small draft + target (GPT-2 117M + 774M) | 2 models |
+| 6b | Load TR-medium draft (GPT-2-medium 354M; reuses target) | 1 model |
+| 6c | Load EN-small draft + target (gpt2 + gpt2-large) | 2 models |
+| 6d | Load EN-medium draft (gpt2-medium; reuses target) | 1 model |
 | 7 | Greedy baseline — Turkish | `baseline_tr_results.csv` |
 | 7b | Greedy baseline — English | `baseline_en_results.csv` |
-| 8 | Speculative decoding — Turkish | `speculative_tr_results.csv` |
-| 9 | Speculative decoding — English | `speculative_en_results.csv` |
-| 10 | γ ablation over {1,3,5,7,10} | `ablation_gamma.csv` |
-| 11 | Full statistical test battery | `statistical_tests.json` |
-| 12 | Morpheme / position / OOV analysis | 3 × `.csv` |
-| 13 | Generate all figures | 10 files (5 × PDF + PNG) |
+| 8 | Speculative — TR-small (3 seeds) | `speculative_tr_small_seed{s}.csv` × 3 |
+| 8b | Speculative — TR-medium (γ=5) | `speculative_tr_medium_results.csv` |
+| 9 | Speculative — EN-small (3 seeds) | `speculative_en_small_seed{s}.csv` × 3 |
+| 9b | Speculative — EN-medium (γ=5) | `speculative_en_medium_results.csv` |
+| 10 | γ ablation over {1,3,5,7,10} on 100 TR samples | `ablation_gamma.csv` |
+| 6e | Free GPT-2 memory; load Llama-3.2-1B + Turkish-Llama-8B (4-bit) | 2 models |
+| 7c | Greedy baseline — Turkish-Llama-8B | `baseline_llama_results.csv` |
+| 9c | Speculative — Llama 1B→8B (3 seeds) | `speculative_llama_seed{s}.csv` × 3 |
+| 6f | Free Llama memory; load Qwen2.5-0.5B + Qwen2.5-7B-Instruct (4-bit) | 2 models |
+| 7d | Greedy baseline — Qwen2.5-7B | `baseline_qwen_results.csv` |
+| 9d | Speculative — Qwen 0.5B→7B (3 seeds) | `speculative_qwen_seed{s}.csv` × 3 |
+| 11 | Full statistical test battery (all families) | `statistical_tests.json` |
+| 11b | Output quality: ROUGE + BLEU | `quality_metrics.csv` |
+| 12 | Position / fragmentation / rejected-token analysis | 6 × `.csv` |
+| 13 | Generate all 8 figures | 16 files (8 × PDF + PNG) |
 | 14 | `git_push(f"results: {timestamp}")` | commit hash |
 
-To run a subset, simply execute the relevant cells — all intermediate data lives in Python variables.
+To run a subset, execute the relevant cells — all intermediate data lives in Python variables.
 
 ---
 
@@ -141,42 +164,58 @@ To run a subset, simply execute the relevant cells — all intermediate data liv
 
 ### XQuAD-TR — Turkish Question Answering
 
-- **Source:** Turkish subset of XQuAD (Artetxe et al., 2020), a multilingual reading-comprehension benchmark derived from SQuAD. Loaded via `google/xquad` with config `xquad.tr`.
-- **Split used:** validation.
-- **Prompt format:**
+- **Source:** Turkish subset of XQuAD (Artetxe et al., 2020). Loaded via `google/xquad` (`xquad.tr`); falls back to `boun-tabilab/XQuAD-TR` and `gorkemgoknar/tr-nlp-qa-xquad-trquad`.
+- **Split:** validation (500 samples, configurable via `NUM_SAMPLES_QA`).
+- **GPT-2 prompt format:**
   ```
   Soru: {question}
   Bağlam: {context[:300]}
   Cevap:
   ```
-- **Metric:** ROUGE-1/2/L, corpus BLEU.
-- **Samples:** 500 (configurable via `NUM_SAMPLES_QA`).
+- **Instruct prompt format** (for Llama target):
+  ```
+  <|system|>
+  Sen bir Türkçe soru-cevap asistanısın.
+  <|user|>
+  Bağlam: {context[:300]}
+
+  Soru: {question}
+  <|assistant|>
+  Cevap:
+  ```
 
 ### TR-News — Turkish Summarisation
 
 - **Source:** `batubayk/TR-News` on Hugging Face Hub.
-- **Split used:** test.
+- **Split:** test (500 samples, configurable via `NUM_SAMPLES_SUM`).
 - **Prompt format:**
   ```
   Aşağıdaki haberi özetle:
   {article[:400]}
   Özet:
   ```
-- **Metric:** ROUGE-1/2/L.
-- **Samples:** 500 (configurable via `NUM_SAMPLES_SUM`).
 
 ### SQuAD — English Question Answering (control group)
 
-- **Source:** `rajpurkar/squad` on Hugging Face Hub.
-- **Split used:** validation.
-- **Prompt format:**
+- **Source:** `rajpurkar/squad`. Loaded via `rajpurkar/squad` with fallback to `squad`.
+- **Split:** validation (500 samples, configurable via `NUM_SAMPLES_EN`).
+- **GPT-2 prompt format:**
   ```
   Question: {question}
   Context: {context[:300]}
   Answer:
   ```
-- **Metric:** ROUGE-1/2/L, corpus BLEU.
-- **Samples:** 500 (configurable via `NUM_SAMPLES_EN`).
+- **Instruct prompt format** (for Qwen target):
+  ```
+  <|system|>
+  You are a helpful QA assistant.
+  <|user|>
+  Context: {context[:300]}
+
+  Question: {question}
+  <|assistant|>
+  Answer:
+  ```
 
 All datasets are shuffled with `SEED=42` before sampling.
 
@@ -184,29 +223,55 @@ All datasets are shuffled with `SEED=42` before sampling.
 
 ## Models
 
-Both draft–target pairs **share the same tokenizer and vocabulary**, which is a hard requirement of the speculative decoding algorithm.
+All draft–target pairs within a family **share the same tokenizer and vocabulary** — a hard requirement of speculative decoding.
 
-### Turkish Pair
+### GPT-2 Turkish Pairs
 
 | Role | Model | Params | Dtype |
 |------|-------|--------|-------|
-| Draft | `ytu-ce-cosmos/turkish-gpt2` | ~117 M | float16 |
+| Draft (small) | `ytu-ce-cosmos/turkish-gpt2` | ~117 M | float16 |
+| Draft (medium) | `ytu-ce-cosmos/turkish-gpt2-medium` | ~354 M | float16 |
 | Target | `ytu-ce-cosmos/turkish-gpt2-large` | ~774 M | float16 |
 
-Both models use the GPT-2 BPE tokenizer (50,257 tokens), so token IDs are compatible across draft and target.
+All three models share the GPT-2 BPE tokenizer (50,257 tokens).
 
-### English Pair
+### GPT-2 English Pairs
 
 | Role | Model | Params | Dtype |
 |------|-------|--------|-------|
-| Draft | `gpt2` | ~117 M | float16 |
+| Draft (small) | `gpt2` | ~117 M | float16 |
+| Draft (medium) | `gpt2-medium` | ~354 M | float16 |
 | Target | `gpt2-large` | ~774 M | float16 |
 
-Both models use the standard GPT-2 BPE tokenizer, ensuring a shared vocabulary.
-The target size (774 M) matches the Turkish target exactly, enabling a fair cross-linguistic comparison
-where any difference in acceptance rates can be attributed to language properties rather than model capacity.
+Target size (774 M) matches the Turkish target exactly, enabling a fair cross-linguistic comparison where acceptance-rate differences are attributable to language, not model capacity.
 
-> Model names are configured in `src/config.py`. Swap them to reproduce experiments with different model pairs — just ensure both models in a pair share the same tokenizer.
+### Llama-3 Pair
+
+| Role | Model | Params | Fine-tuning | Dtype |
+|------|-------|--------|-------------|-------|
+| Draft | `unsloth/Llama-3.2-1B` (or `meta-llama/Llama-3.2-1B`) | ~1 B | **base** | float16 |
+| Target | `ytu-ce-cosmos/Turkish-Llama-8b-Instruct-v0.1` | ~8 B | **instruct** | 4-bit NF4 |
+
+Both models share the Llama-3 tokenizer (128,256 tokens) — the target is fine-tuned from Llama-3.1-8B and inherits it.
+
+> **Note on dtype:** 4-bit NF4 is a weight storage format only. BitsAndBytes dequantizes to float16 during the forward pass (`bnb_4bit_compute_dtype=torch.float16`), so both models produce float16 logits and are numerically compatible in the accept/reject step.
+
+> **Note on fine-tuning mismatch:** The draft is a **base** model; the target is **instruction-tuned**. A base draft proposing tokens for an instruct-formatted prompt will diverge from the target's distribution, resulting in a lower acceptance rate than same-fine-tuning pairs. This is intentional — this pair is included specifically to **measure the base→instruct distribution gap** and its effect on speculative decoding efficiency. The algorithm remains lossless regardless of acceptance rate.
+
+### Qwen2.5 Pair (cross-lingual + fine-tuning mismatch)
+
+| Role | Model | Params | Fine-tuning | Dtype |
+|------|-------|--------|-------------|-------|
+| Draft | `ytu-ce-cosmos/tr-Qwen2.5-0.5B-SFT-v1` | ~0.5 B | **Turkish SFT** | float16 |
+| Target | `Qwen/Qwen2.5-7B-Instruct` | ~7 B | **multilingual instruct** | 4-bit NF4 |
+
+Both models share the Qwen2.5 tokenizer (151,936 tokens).
+
+> **Note on dtype:** Same as Llama above — NF4 is storage-only; logits are float16 and compatible.
+
+> **Note on fine-tuning mismatch:** The draft is Turkish-SFT and the target is multilingual-instruct. This pair intentionally stacks two sources of distribution gap: language mismatch (Turkish-adapted draft vs multilingual target) and fine-tuning style mismatch (SFT vs instruct). Acceptance rates are expected to be lower than GPT-2 pairs. The experiment measures how much each factor degrades speculative efficiency — a realistic production scenario where you may not have a matching instruct draft.
+
+> Model names are configured in `src/config.py`. Swap them to run your own pairs — just ensure both models share the same tokenizer.
 
 ---
 
@@ -215,14 +280,25 @@ where any difference in acceptance rates can be attributed to language propertie
 ### Speculative Decoding Algorithm
 
 ```
+One-time prompt initialisation:
+  target_model(prompt) → builds target KV cache, yields logit for position 0
+
 For each generation step:
-  1. Draft model autoregressively generates γ tokens: d₁, d₂, …, dγ
-  2. Target model scores all γ+1 positions in ONE forward pass
-  3. For each dᵢ:
-       acceptance_prob = min(1, p_target(dᵢ) / p_draft(dᵢ))
-       if U ~ Uniform(0,1) ≤ acceptance_prob → accept
-       else → sample from max(0, p_target − p_draft), stop
-  4. If all γ accepted → sample bonus token from target at position γ+1
+  Draft phase (KV-cached):
+    1. Draft model generates γ tokens: d₀, d₁, …, d_{γ-1}
+
+  Target verification (O(γ), not O(L)):
+    2. target_model([d₀ … d_{γ-1}], past_kv=target_cache) in ONE forward pass
+
+  Accept / reject:
+    3. For each dᵢ:
+         acceptance_prob = min(1, p_target(dᵢ) / p_draft(dᵢ))
+         if U ~ Uniform(0,1) ≤ acceptance_prob → accept
+         else → sample corrected token from max(0, p_target − p_draft), stop
+
+  Update:
+    4. If all γ accepted → sample bonus token from target at position γ
+    5. Target KV cache is updated by ≤ γ+1 tokens (never re-encodes full context)
 ```
 
 This preserves the **exact output distribution** of the target model (lossless acceleration).
@@ -231,15 +307,15 @@ This preserves the **exact output distribution** of the target model (lossless a
 
 | Mode | Description | Use |
 |------|-------------|-----|
-| `greedy` | `do_sample=False`, autoregressive | Speed baseline |
-| `speculative` | Accept/reject with draft model | Main experiment |
-| `beam` | Beam search, `num_beams=4` | Quality upper bound |
+| `greedy` | `do_sample=False`, autoregressive via `model.generate` | Speed baseline |
+| `speculative` | Accept/reject with target-side KV cache | Main experiment |
+| `beam` | Beam search, `num_beams=4` | Alternative baseline |
 
 ### Ablation Study
 
-γ ∈ {1, 3, 5, 7, 10} on 100 TR samples each. Measures trade-off between:
-- Acceptance rate (decreases as γ grows — longer drafts are harder to fully accept).
-- Latency (non-monotone — small γ wastes target capacity; large γ wastes draft capacity).
+γ ∈ {1, 3, 5, 7, 10} on 100 TR samples (seed = SEEDS[0]). Measures trade-off between:
+- **Acceptance rate** (tends to decrease as γ grows — longer drafts are harder to fully accept).
+- **Latency** (non-monotone — very small γ under-exploits parallelism; very large γ wastes draft compute).
 
 ---
 
@@ -254,51 +330,48 @@ All tests are run in `src/metrics.py` and saved to `results/statistical_tests.js
 | Cohen's d | Latency distributions | Effect size |
 | Bootstrap CI (n=10 000) | Acceptance rates, speedup ratios | 95 % confidence intervals |
 
+Seed stability is quantified by reporting mean ± std of per-seed acceptance rates for all 3-seed conditions (TR-small, EN-small, Llama, Qwen).
+
 Significance threshold: α = 0.05 (two-sided).
 
 ---
 
 ## Linguistic Analysis
 
-Implemented in `src/linguistic.py` using the `zeyrek` Turkish morphological analyser.
-
-### Morpheme Categories
-
-| Category | Description | Example |
-|----------|-------------|---------|
-| `ROOT_ONLY` | No suffixes attached | *ev* (house) |
-| `NOMINAL_SUFFIX` | Case, number, possession | *evlerde* (in the houses) |
-| `VERBAL_SUFFIX` | Tense, mood, person | *gidiyorum* (I am going) |
-| `DERIVATIONAL` | Word-class changing suffix | *güzellik* (beauty ← beautiful) |
-| `COMPOUND` | Multiple morpheme boundaries | *başbakan* (prime minister) |
-| `UNKNOWN` | Unanalysable / OOV | proper nouns, loanwords |
+Implemented in `src/linguistic.py`. No external morphological analyser is required — all analysis uses the shared BPE tokenizer.
 
 ### Position-Bucket Analysis
 
-Each sample's generated sequence is split into **early / mid / late** thirds. Acceptance rates per bucket reveal whether morphological complexity accumulates as generation progresses.
+Each sample's generated sequence is split into **early / mid / late** thirds. Per-bucket acceptance rates reveal whether acceptance degrades as generation progresses (longer context = harder draft alignment).
 
-### OOV Fragmentation & Acceptance Correlation
+### Subword Fragmentation
 
-Since draft and target share the same tokenizer, fragmentation is measured per language against its own vocabulary. **Turkish words fragment into more subwords than English words** due to agglutinative morphology — even when a Turkish-specific tokenizer is used. Two analyses are produced:
+Since draft and target share the same tokenizer, fragmentation reflects the inherent morphological complexity of each language relative to its vocabulary.
 
-- **Cross-linguistic fragmentation comparison** (`oov_analysis_tr.csv` vs `oov_analysis_en.csv`): mean fragments per word for Turkish vs English prompts, showing Turkish's higher morphological complexity.
-- **Fragmentation–acceptance Spearman correlation** (`fragmentation_acceptance.csv`): measures whether words requiring more subword tokens (complex morphology) are accepted less often by the draft model.
+**Cross-linguistic comparison** (`oov_analysis_tr.csv` vs `oov_analysis_en.csv`): mean subword fragments per word for Turkish vs English prompts, showing Turkish's higher morphological load even when a Turkish-specific BPE vocabulary is used.
+
+**Fragmentation–acceptance correlation** (`fragmentation_acceptance.csv`): Spearman ρ between per-word fragment count and mean acceptance rate, testing whether morphologically complex words (more subwords) are systematically harder for the draft model.
+
+### Rejected-Token Frequency Analysis
+
+`rejected_token_analysis` counts total proposals and rejections per token surface form, identifying systematic failure modes (e.g., specific suffixes, function words, or punctuation that the draft model consistently mispredicts).
 
 ---
 
 ## Figures
 
-All figures are saved as PDF (vector, for papers) and PNG (raster, for presentations) to `figures/`.
+All figures are saved as PDF (vector, for papers) and PNG (raster, for presentations) to `figures/`. Style: serif font, 11 pt, 300 dpi — ready for ACL/EMNLP submission.
 
 | File stem | Content |
 |-----------|---------|
-| `acceptance_distribution` | Overlaid density histograms of per-sample acceptance rates (TR vs. EN) |
-| `speedup_boxplot` | Notched box-plots of speedup ratios vs. greedy baseline, with 1× reference line |
-| `ablation_gamma` | Dual-panel: acceptance rate + latency vs. γ with IQR shading |
-| `morpheme_rejection` | Horizontal bars coloured by rejection rate per morpheme category |
+| `acceptance_distribution` | Overlaid density histograms of per-sample acceptance rates for all speculative conditions |
+| `latency_violin` | Violin + embedded box plots of per-sample speedup ratios, one panel per condition |
+| `speedup_boxplot` | Notched box plots of speedup ratios vs greedy baseline with 1× reference line |
+| `ablation_gamma` | Dual-panel: acceptance rate + latency vs γ with IQR shading |
 | `position_acceptance` | Bar chart of acceptance rates in early / mid / late token position buckets |
-
-Style: serif font, 11 pt, 300 dpi — ready for ACL/EMNLP submission.
+| `model_comparison` | Side-by-side grouped bars: mean acceptance rate + median speedup across all model pairs |
+| `fragmentation_comparison` | Two-panel: fragment distribution histogram + per-task mean fragments for Turkish vs English |
+| `quality_metrics` | Grouped bar chart: ROUGE-1/2/L (+ BLEU) for greedy vs speculative across conditions |
 
 ---
 
@@ -308,17 +381,44 @@ After a full run, `results/` contains:
 
 ```
 results/
-├── baseline_tr_results.csv          # greedy baseline — Turkish
-├── baseline_en_results.csv          # greedy baseline — English
-├── speculative_tr_results.csv       # TR speculative (+ acceptance_rate, token_level_log)
-├── speculative_en_results.csv       # EN speculative
-├── ablation_gamma.csv               # γ ablation across all draft steps
-├── statistical_tests.json           # all statistical test outputs
-├── morpheme_rejection.csv           # rejection rate per Turkish morpheme category
-├── position_acceptance.csv          # acceptance rate per position bucket (early/mid/late)
-├── oov_analysis_tr.csv              # Turkish subword fragmentation per word
-├── oov_analysis_en.csv              # English subword fragmentation per word
-└── fragmentation_acceptance.csv     # Spearman ρ: fragment count vs acceptance rate
+│
+├── baseline_tr_results.csv               # greedy baseline — Turkish (GPT-2)
+├── baseline_en_results.csv               # greedy baseline — English (GPT-2)
+├── baseline_llama_results.csv            # greedy baseline — Turkish-Llama-8B
+├── baseline_qwen_results.csv             # greedy baseline — Qwen2.5-7B
+│
+├── speculative_tr_small_seed42.csv       # TR-small, seed 42
+├── speculative_tr_small_seed123.csv      # TR-small, seed 123
+├── speculative_tr_small_seed456.csv      # TR-small, seed 456
+├── speculative_tr_small_results.csv      # TR-small, all seeds combined
+├── speculative_tr_medium_results.csv     # TR-medium, γ=5
+│
+├── speculative_en_small_seed42.csv       # EN-small, seed 42
+├── speculative_en_small_seed123.csv      # EN-small, seed 123
+├── speculative_en_small_seed456.csv      # EN-small, seed 456
+├── speculative_en_small_results.csv      # EN-small, all seeds combined
+├── speculative_en_medium_results.csv     # EN-medium, γ=5
+│
+├── speculative_llama_seed42.csv          # Llama 1B→8B, seed 42
+├── speculative_llama_seed123.csv
+├── speculative_llama_seed456.csv
+├── speculative_llama_results.csv         # Llama, all seeds combined
+│
+├── speculative_qwen_seed42.csv           # Qwen 0.5B→7B, seed 42
+├── speculative_qwen_seed123.csv
+├── speculative_qwen_seed456.csv
+├── speculative_qwen_results.csv          # Qwen, all seeds combined
+│
+├── ablation_gamma.csv                    # γ ablation (TR-small, 100 samples)
+├── statistical_tests.json               # all statistical test outputs
+├── quality_metrics.csv                  # ROUGE + BLEU: greedy vs speculative
+│
+├── position_acceptance.csv              # acceptance rate per position bucket
+├── oov_analysis_tr.csv                  # Turkish subword fragmentation per word
+├── oov_analysis_en.csv                  # English subword fragmentation per word
+├── fragmentation_acceptance.csv         # Spearman ρ: fragment count vs acceptance
+├── rejected_tokens_tr.csv               # top-30 most-proposed tokens (Turkish)
+└── rejected_tokens_en.csv               # top-30 most-proposed tokens (English)
 ```
 
 CSV columns for speculative results:
@@ -327,14 +427,15 @@ CSV columns for speculative results:
 |--------|------|-------------|
 | `prompt` | str | Input prompt |
 | `reference` | str | Ground-truth answer/summary |
-| `task` | str | `qa_tr`, `summarization_tr`, `qa_en` |
+| `task` | str | `qa_tr`, `summarization_tr`, `qa_en`, `qa_tr_instruct`, `qa_en_instruct` |
 | `mode` | str | `speculative` / `greedy` / `beam` |
 | `draft_steps` | int | γ value used |
 | `generated_text` | str | Model output |
 | `acceptance_rate` | float | Fraction of draft tokens accepted |
 | `num_target_calls` | int | Number of target forward passes |
 | `latency_ms` | float | Wall-clock generation time (ms) |
-| `token_level_log` | list[dict] | Per-token: position, token_str, p_draft, p_target, accepted |
+| `token_level_log` | list[dict] | Per-token: position, token_str, p_draft, p_target, acceptance_prob, accepted |
+| `seed` | int | Random seed (present in multi-seed runs only) |
 
 ---
 
@@ -343,18 +444,40 @@ CSV columns for speculative results:
 All hyperparameters live in `src/config.py`:
 
 ```python
-SEED                 = 42
-DRAFT_MODEL_NAME     = "ytu-ce-cosmos/turkish-gpt2"        # ~117 M — Turkish draft
-TARGET_MODEL_NAME    = "ytu-ce-cosmos/turkish-gpt2-large"  # ~774 M — Turkish target
-DRAFT_MODEL_EN_NAME  = "gpt2"                              # ~117 M — English draft
-TARGET_MODEL_EN_NAME = "gpt2-large"                        # ~774 M — English target (matches Turkish target size)
-MAX_NEW_TOKENS       = 128
-DRAFT_STEPS_LIST     = [1, 3, 5, 7, 10]
-DEFAULT_DRAFT_STEPS  = 5
-NUM_SAMPLES_QA       = 500
-NUM_SAMPLES_SUM      = 500
-NUM_SAMPLES_EN       = 500
-QUANTIZATION_BITS    = 0   # 0 = float16 (no quantization); set to 4 for 7B+ models
+SEED  = 42
+SEEDS = [42, 123, 456]   # seeds for multi-seed robustness runs
+
+# Turkish GPT-2 pairs (shared 50,257-token BPE vocabulary)
+DRAFT_MODEL_TR_SMALL_NAME  = "ytu-ce-cosmos/turkish-gpt2"          # 117 M
+DRAFT_MODEL_TR_MEDIUM_NAME = "ytu-ce-cosmos/turkish-gpt2-medium"   # 354 M
+TARGET_MODEL_TR_NAME       = "ytu-ce-cosmos/turkish-gpt2-large"    # 774 M
+
+# English GPT-2 pairs (same BPE vocabulary as above but English-trained)
+DRAFT_MODEL_EN_SMALL_NAME  = "gpt2"           # 117 M
+DRAFT_MODEL_EN_MEDIUM_NAME = "gpt2-medium"    # 354 M
+TARGET_MODEL_EN_NAME       = "gpt2-large"     # 774 M
+
+# Llama-3 pair (128,256-token tiktoken vocabulary)
+DRAFT_MODEL_LLAMA_NAME  = "unsloth/Llama-3.2-1B"
+TARGET_MODEL_LLAMA_NAME = "ytu-ce-cosmos/Turkish-Llama-8b-Instruct-v0.1"
+QUANTIZATION_BITS_LLAMA = 4    # 4-bit NF4 for 8B target
+
+# Qwen2.5 pair (151,936-token vocabulary)
+DRAFT_MODEL_QWEN_NAME  = "ytu-ce-cosmos/tr-Qwen2.5-0.5B-SFT-v1"
+TARGET_MODEL_QWEN_NAME = "Qwen/Qwen2.5-7B-Instruct"
+QUANTIZATION_BITS_QWEN = 4    # 4-bit NF4 for 7B target
+
+MAX_NEW_TOKENS      = 128
+DRAFT_STEPS_LIST    = [1, 3, 5, 7, 10]
+DEFAULT_DRAFT_STEPS = 5
+
+NUM_SAMPLES_QA    = 500   # XQuAD-TR
+NUM_SAMPLES_SUM   = 500   # TR-News
+NUM_SAMPLES_EN    = 500   # SQuAD
+NUM_SAMPLES_LLAMA = 300   # reduced — 8B is slower per sample
+NUM_SAMPLES_QWEN  = 300   # reduced — 7B is slower per sample
+
+QUANTIZATION_BITS = 0    # 0 = float16 for GPT-2 scale models
 ```
 
 No changes to any other file are needed to swap models or adjust sample sizes.
@@ -379,8 +502,4 @@ If you use this codebase in your research, please cite:
 - Leviathan, Y., Kalman, M., & Matias, Y. (2023). **Fast Inference from Transformers via Speculative Decoding.** ICML 2023.
 - Chen, C., et al. (2023). **Accelerating Large Language Model Decoding with Speculative Sampling.** arXiv:2302.01318.
 - Dettmers, T., et al. (2023). **QLoRA: Efficient Finetuning of Quantized LLMs.** NeurIPS 2023.
-- Şahin, G. G., & Steedman, M. (2018). **Data Augmentation via Dependency Tree Morphological Inflection.** EMNLP 2018.
-
----
-
-
+- Artetxe, M., et al. (2020). **On the Cross-lingual Transferability of Monolingual Representations.** ACL 2020.
