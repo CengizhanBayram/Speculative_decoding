@@ -64,22 +64,28 @@ def fig_acceptance_distribution(results_dict: dict, save_dir: Path) -> list:
     return _save(fig, save_dir, "acceptance_distribution")
 
 
-def fig_speedup_boxplot(results_dict: dict, baseline_df: pd.DataFrame, save_dir: Path) -> list:
+def fig_speedup_boxplot(results_dict: dict, baseline_dict: dict, save_dir: Path) -> list:
     """
     Box-plot of per-sample speedup ratios (baseline latency / speculative latency)
-    for each condition in results_dict.
+    for each condition in results_dict.  baseline_dict maps the same keys to their
+    respective greedy baseline DataFrames.
     """
     fig, ax = plt.subplots(figsize=(7, 4))
 
     data, labels = [], []
-    bl = baseline_df["latency_ms"].values
-
     for label, df in results_dict.items():
+        base_df = baseline_dict.get(label)
+        if base_df is None:
+            continue
+        bl      = base_df["latency_ms"].values
         sp      = df["latency_ms"].values
         n       = min(len(bl), len(sp))
         speedup = bl[:n] / np.maximum(sp[:n], 1e-6)
         data.append(speedup)
         labels.append(label)
+
+    if not data:
+        return []
 
     bp = ax.boxplot(data, labels=labels, patch_artist=True, notch=True)
     colors = [_PALETTE["blue"], _PALETTE["orange"]]
@@ -226,8 +232,8 @@ def fig_fragmentation_comparison(oov_tr_df: pd.DataFrame,
     w         = 0.35
 
     def _task_vals(stats_df):
-        m = {r.task: r["mean"] for r in stats_df.itertuples()}
-        s = {r.task: r["std"]  for r in stats_df.itertuples()}
+        m = {r.task: r.mean for r in stats_df.itertuples()}
+        s = {r.task: r.std  for r in stats_df.itertuples()}
         return [m.get(t, 0) for t in all_tasks], [s.get(t, 0) for t in all_tasks]
 
     tr_m, tr_s = _task_vals(tr_stats)
@@ -467,8 +473,8 @@ def generate_all_figures(results_dict: dict, save_dir) -> list:
         ),
         (
             "fig_speedup_boxplot",
-            lambda: fig_speedup_boxplot(spec_cond, baseline_df, save_dir),
-            len(spec_cond) > 0 and baseline_df is not None,
+            lambda: fig_speedup_boxplot(spec_cond, baseline_per_cond, save_dir),
+            len(spec_cond) > 0 and len(baseline_per_cond) > 0,
         ),
         (
             "fig_ablation_gamma",
