@@ -9,23 +9,33 @@ from tqdm import tqdm
 def _slice_past_kv(past_kv, length: int):
     """
     Trim a KV-cache to the first `length` token positions.
-    Handles both the legacy tuple-of-tuples format (GPT-2) and the
-    DynamicCache object returned by Llama / Qwen in transformers >= 4.38.
+
+    Uses duck typing to detect DynamicCache (transformers >= 4.38) — safer
+    than isinstance because the class may live at different import paths
+    across transformers versions. Falls back to tuple-of-tuples for GPT-2
+    legacy format, handling any number of tensors per layer defensively.
     """
-    try:
-        from transformers.cache_utils import DynamicCache
-        if isinstance(past_kv, DynamicCache):
-            dc = DynamicCache()
-            for k, v in zip(past_kv.key_cache, past_kv.value_cache):
-                dc.key_cache.append(k[:, :, :length, :])
-                dc.value_cache.append(v[:, :, :length, :])
-            return dc
-    except (ImportError, AttributeError):
-        pass
-    return tuple(
-        (k[:, :, :length, :], v[:, :, :length, :])
-        for k, v in past_kv
-    )
+    # DynamicCache and its subclasses expose key_cache / value_cache lists.
+    if hasattr(past_kv, "key_cache") and hasattr(past_kv, "value_cache"):
+        try:
+            from transformers.cache_utils import DynamicCache
+        except ImportError:
+            from transformers import DynamicCache
+        dc = DynamicCache()
+        for k, v in zip(past_kv.key_cache, past_kv.value_cache):
+            dc.key_cache.append(k[:, :, :length, :])
+            dc.value_cache.append(v[:, :, :length, :])
+        return dc
+
+    # Legacy tuple-of-tuples: each layer is a tuple of one or more tensors.
+    # Only 4-D tensors (shape [batch, heads, seq, dim]) are sliced along seq.
+    sliced = []
+    for layer_kv in past_kv:
+        sliced.append(tuple(
+            t[:, :, :length, :] if isinstance(t, torch.Tensor) and t.dim() == 4 else t
+            for t in layer_kv
+        ))
+    return tuple(sliced)
 
 
 def speculative_decode(
