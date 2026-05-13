@@ -44,6 +44,7 @@ def speculative_decode(
     total_draft_tokens = 0
     num_target_calls   = 0
     token_level_log    = []
+    target_prefix_past = None   # target KV cache; covers generated[:-1]
 
     eos_ids = set()
     if draft_tok.eos_token_id is not None:
@@ -87,14 +88,44 @@ def speculative_decode(
                 draft_tokens.append(token)
                 draft_probs_list.append(prob)
 
-        # ── Verification phase ────────────────────────────────────────────────
-        # Feed [generated | draft_tokens] to target in a single forward pass.
-        # Logit at position (L-1+i) predicts draft_tokens[i].
-        # Logit at position (L-1+gamma) is used for the bonus token.
-        L            = generated.shape[1]
-        target_input = torch.cat([generated] + draft_tokens, dim=1).to(target_device)
-        with torch.no_grad():
-            target_logits = target_model(target_input).logits  # [1, L+gamma, vocab]
+        # ── Verification phase (target KV-cached) ────────────────────────────
+        # We maintain `target_prefix_past`, the target's KV cache for
+        # generated[:-1].  Each iteration we feed only [generated[-1:] |
+        # draft_tokens] (γ+1 tokens) instead of the full sequence, reducing
+        # target attention cost from O(L·γ) to O(γ) per outer step.
+        #
+        # Logit indexing with prefix cache:
+        #   out.logits[:, 0, :] ≡ logit at position (L-1) → predicts d1
+        #   out.logits[:, i, :] → predicts d_{i+1}
+        #   out.logits[:, γ, :] → bonus token
+        L = generated.shape[1]
+
+        if target_prefix_past is None:
+            # First iteration: full forward pass (no cache yet); use_cache=True
+            # so we capture the KV states for subsequent iterations.
+            target_input = torch.cat([generated] + draft_tokens, dim=1).to(target_device)
+            with torch.no_grad():
+                target_out    = target_model(target_input, use_cache=True)
+            target_logits_full = target_out.logits          # [1, L+γ, vocab]
+            target_prefix_past = target_out.past_key_values # covers 0..(L+γ-1)
+            # Wrap logit getter: same indexing as original code
+            def _get_logit(i):
+                return target_logits_full[:, L - 1 + i, :].to(draft_device)
+        else:
+            # Subsequent iterations: feed only [generated[-1:] | d1..dγ]
+            verify_input = torch.cat(
+                [generated[:, -1:]] + draft_tokens, dim=1
+            ).to(target_device)                             # [1, 1+γ]
+            with torch.no_grad():
+                target_out    = target_model(verify_input,
+                                             past_key_values=target_prefix_past,
+                                             use_cache=True)
+            target_logits_new  = target_out.logits          # [1, 1+γ, vocab]
+            target_prefix_past = target_out.past_key_values # covers 0..(L+γ-1)
+            # Logit at index i → predicts d_{i+1} (same meaning, different array index)
+            def _get_logit(i):
+                return target_logits_new[:, i, :].to(draft_device)
+
         num_target_calls += 1
 
         # ── Accept / reject ───────────────────────────────────────────────────
@@ -107,7 +138,7 @@ def speculative_decode(
             token_id = draft_tokens[i].item()
             total_draft_tokens += 1
 
-            t_logit = target_logits[:, L - 1 + i, :].to(draft_device)
+            t_logit = _get_logit(i)
             d_prob  = draft_probs_list[i]
 
             if temperature == 0.0:
@@ -157,16 +188,15 @@ def speculative_decode(
                 stop = True
 
         elif eos_found:
-            # Append only accepted tokens up to (and including) the EOS token.
             for j in range(n_accepted):
                 generated = torch.cat([generated, draft_tokens[j]], dim=1)
             stop = True
 
         else:
-            # All gamma draft tokens accepted — append them plus the bonus token.
+            # All gamma draft tokens accepted — append them plus a bonus token.
             for j in range(gamma):
                 generated = torch.cat([generated, draft_tokens[j]], dim=1)
-            bonus_logit = target_logits[:, L - 1 + gamma, :].to(draft_device)
+            bonus_logit = _get_logit(gamma)   # logit at index γ → bonus
             if temperature == 0.0:
                 bonus_token = bonus_logit.argmax(dim=-1, keepdim=True)
             else:
@@ -175,6 +205,17 @@ def speculative_decode(
             generated = torch.cat([generated, bonus_token], dim=1)
             if bonus_token.item() in eos_ids:
                 stop = True
+
+        # ── Update target prefix cache ────────────────────────────────────────
+        # target_prefix_past now covers 0..(L+γ-1).
+        # After appending (n_accepted + 1) tokens, generated has length new_L.
+        # We need the cache to cover generated[:-1] = new_L - 1 positions.
+        new_L  = generated.shape[1]
+        n_keep = new_L - 1
+        target_prefix_past = tuple(
+            (k[:, :, :n_keep, :], v[:, :, :n_keep, :])
+            for k, v in target_prefix_past
+        )
 
     latency_ms      = (time.perf_counter() - start_time) * 1000
     acceptance_rate = total_accepted / max(total_draft_tokens, 1)
