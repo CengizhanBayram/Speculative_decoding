@@ -6,6 +6,28 @@ import pandas as pd
 from tqdm import tqdm
 
 
+def _slice_past_kv(past_kv, length: int):
+    """
+    Trim a KV-cache to the first `length` token positions.
+    Handles both the legacy tuple-of-tuples format (GPT-2) and the
+    DynamicCache object returned by Llama / Qwen in transformers >= 4.38.
+    """
+    try:
+        from transformers.cache_utils import DynamicCache
+        if isinstance(past_kv, DynamicCache):
+            dc = DynamicCache()
+            for k, v in zip(past_kv.key_cache, past_kv.value_cache):
+                dc.key_cache.append(k[:, :, :length, :])
+                dc.value_cache.append(v[:, :, :length, :])
+            return dc
+    except (ImportError, AttributeError):
+        pass
+    return tuple(
+        (k[:, :, :length, :], v[:, :, :length, :])
+        for k, v in past_kv
+    )
+
+
 def speculative_decode(
     input_ids: torch.Tensor,
     draft_model,
@@ -17,15 +39,14 @@ def speculative_decode(
     temperature: float = 1.0,
 ) -> dict:
     """
-    Speculative decoding with full accept/reject algorithm.
+    Speculative decoding with target-side KV cache.
 
-    Draft model proposes `draft_steps` tokens using a KV-cached forward pass;
-    target model verifies them all in a single forward pass. Each token is
-    accepted with probability min(1, p_target / p_draft). Rejected positions
-    are replaced by a sample from the corrected residual distribution
-    max(0, p_target - p_draft). If all draft tokens are accepted a bonus token
-    is sampled from the target. Generation stops immediately when any EOS token
-    is encountered (including mid-sequence accepted draft tokens).
+    The target model is initialised once on the full prompt (O(L_prompt) cost)
+    and thereafter called only on the γ draft tokens per outer iteration (O(γ)).
+    This eliminates the O(L) re-encoding cost of the naive implementation and
+    makes latency much less sensitive to generation length.
+
+    Invariant maintained throughout: len(target_past_kv) == generated.shape[1].
 
     Returns
     -------
@@ -44,13 +65,18 @@ def speculative_decode(
     total_draft_tokens = 0
     num_target_calls   = 0
     token_level_log    = []
-    target_prefix_past = None   # target KV cache; covers generated[:-1]
 
     eos_ids = set()
-    if draft_tok.eos_token_id is not None:
-        eos_ids.add(draft_tok.eos_token_id)
-    if target_tok.eos_token_id is not None:
-        eos_ids.add(target_tok.eos_token_id)
+    if draft_tok.eos_token_id  is not None: eos_ids.add(draft_tok.eos_token_id)
+    if target_tok.eos_token_id is not None: eos_ids.add(target_tok.eos_token_id)
+
+    # ── One-time prompt initialisation ───────────────────────────────────────
+    # Builds target KV cache for the prompt and gives the logit for the first
+    # draft token (d0) without an extra forward pass.
+    with torch.no_grad():
+        prompt_out = target_model(generated.to(target_device), use_cache=True)
+    target_past_kv    = prompt_out.past_key_values
+    last_target_logit = prompt_out.logits[:, -1, :].to(draft_device)
 
     stop = False
     while (generated.shape[1] - n_input) < max_new_tokens and not stop:
@@ -58,19 +84,14 @@ def speculative_decode(
         gamma     = min(draft_steps, remaining)
 
         # ── Draft phase (KV-cached) ───────────────────────────────────────────
-        # First call: full context to build KV cache.
-        # Subsequent calls: only the last draft token + accumulated KV cache.
-        draft_tokens     = []   # List[Tensor[1,1]]
-        draft_probs_list = []   # List[Tensor[1,vocab]]
+        draft_tokens     = []
+        draft_probs_list = []
         past_key_values  = None
 
         with torch.no_grad():
             for step in range(gamma):
-                if step == 0:
-                    model_input = generated.to(draft_device)
-                else:
-                    model_input = draft_tokens[-1].to(draft_device)
-
+                model_input = generated.to(draft_device) if step == 0 \
+                              else draft_tokens[-1].to(draft_device)
                 out   = draft_model(model_input,
                                     past_key_values=past_key_values,
                                     use_cache=True)
@@ -88,57 +109,32 @@ def speculative_decode(
                 draft_tokens.append(token)
                 draft_probs_list.append(prob)
 
-        # ── Verification phase (target KV-cached) ────────────────────────────
-        # We maintain `target_prefix_past`, the target's KV cache for
-        # generated[:-1].  Each iteration we feed only [generated[-1:] |
-        # draft_tokens] (γ+1 tokens) instead of the full sequence, reducing
-        # target attention cost from O(L·γ) to O(γ) per outer step.
-        #
-        # Logit indexing with prefix cache:
-        #   out.logits[:, 0, :] ≡ logit at position (L-1) → predicts d1
-        #   out.logits[:, i, :] → predicts d_{i+1}
-        #   out.logits[:, γ, :] → bonus token
-        L = generated.shape[1]
-
-        if target_prefix_past is None:
-            # First iteration: full forward pass (no cache yet); use_cache=True
-            # so we capture the KV states for subsequent iterations.
-            target_input = torch.cat([generated] + draft_tokens, dim=1).to(target_device)
-            with torch.no_grad():
-                target_out    = target_model(target_input, use_cache=True)
-            target_logits_full = target_out.logits          # [1, L+γ, vocab]
-            target_prefix_past = target_out.past_key_values # covers 0..(L+γ-1)
-            # Wrap logit getter: same indexing as original code
-            def _get_logit(i):
-                return target_logits_full[:, L - 1 + i, :].to(draft_device)
-        else:
-            # Subsequent iterations: feed only [generated[-1:] | d1..dγ]
-            verify_input = torch.cat(
-                [generated[:, -1:]] + draft_tokens, dim=1
-            ).to(target_device)                             # [1, 1+γ]
-            with torch.no_grad():
-                target_out    = target_model(verify_input,
-                                             past_key_values=target_prefix_past,
-                                             use_cache=True)
-            target_logits_new  = target_out.logits          # [1, 1+γ, vocab]
-            target_prefix_past = target_out.past_key_values # covers 0..(L+γ-1)
-            # Logit at index i → predicts d_{i+1} (same meaning, different array index)
-            def _get_logit(i):
-                return target_logits_new[:, i, :].to(draft_device)
-
+        # ── Target verification — only γ tokens, O(γ) attention ──────────────
+        L         = generated.shape[1]
+        draft_cat = torch.cat(draft_tokens, dim=1).to(target_device)
+        with torch.no_grad():
+            target_out = target_model(
+                draft_cat,
+                past_key_values=target_past_kv,
+                use_cache=True,
+            )
         num_target_calls += 1
 
         # ── Accept / reject ───────────────────────────────────────────────────
+        # Logit for d0 comes from last_target_logit (carried from previous iter).
+        # Logit for di (i >= 1) is target_out.logits[:, i-1, :].
         n_accepted    = 0
         rejection_idx = None
         corrected_tok = None
-        eos_found     = False  # True when an accepted draft token is EOS
+        eos_found     = False
 
         for i in range(gamma):
             token_id = draft_tokens[i].item()
             total_draft_tokens += 1
 
-            t_logit = _get_logit(i)
+            t_logit_raw = last_target_logit if i == 0 \
+                          else target_out.logits[:, i - 1, :]
+            t_logit = t_logit_raw.to(draft_device)
             d_prob  = draft_probs_list[i]
 
             if temperature == 0.0:
@@ -166,56 +162,71 @@ def speculative_decode(
                 n_accepted    += 1
                 total_accepted += 1
                 if token_id in eos_ids:
-                    eos_found = True  # stop immediately after appending this token
+                    eos_found = True
                     break
             else:
-                rejection_idx  = i
-                adjusted       = torch.clamp(t_prob - d_prob, min=0.0)
-                norm           = adjusted.sum()
+                rejection_idx = i
+                adjusted      = torch.clamp(t_prob - d_prob, min=0.0)
+                norm          = adjusted.sum()
                 if norm > 1e-10:
-                    adjusted      = adjusted / norm
-                    corrected_tok = torch.multinomial(adjusted, num_samples=1).to(draft_device)
+                    corrected_tok = torch.multinomial(
+                        adjusted / norm, num_samples=1
+                    ).to(draft_device)
                 else:
                     corrected_tok = t_logit.argmax(dim=-1, keepdim=True).to(draft_device)
                 break
 
-        # ── Append tokens and determine whether to stop ───────────────────────
+        # ── Append tokens + update target KV cache ────────────────────────────
         if rejection_idx is not None:
             for j in range(n_accepted):
                 generated = torch.cat([generated, draft_tokens[j]], dim=1)
             generated = torch.cat([generated, corrected_tok], dim=1)
+
+            # Slice to accepted drafts, extend with corrected token.
+            kv_sliced = _slice_past_kv(target_out.past_key_values, L + n_accepted)
+            with torch.no_grad():
+                corr_out = target_model(
+                    corrected_tok.to(target_device),
+                    past_key_values=kv_sliced,
+                    use_cache=True,
+                )
+            target_past_kv    = corr_out.past_key_values
+            last_target_logit = corr_out.logits[:, 0, :].to(draft_device)
+
             if corrected_tok.item() in eos_ids:
                 stop = True
 
         elif eos_found:
             for j in range(n_accepted):
                 generated = torch.cat([generated, draft_tokens[j]], dim=1)
+            target_past_kv = _slice_past_kv(target_out.past_key_values, L + n_accepted)
             stop = True
 
         else:
-            # All gamma draft tokens accepted — append them plus a bonus token.
+            # All γ accepted — bonus token from last output logit.
             for j in range(gamma):
                 generated = torch.cat([generated, draft_tokens[j]], dim=1)
-            bonus_logit = _get_logit(gamma)   # logit at index γ → bonus
+
+            bonus_logit = target_out.logits[:, gamma - 1, :].to(draft_device)
             if temperature == 0.0:
-                bonus_token = bonus_logit.argmax(dim=-1, keepdim=True)
+                bonus_token = bonus_logit.argmax(dim=-1, keepdim=True).to(draft_device)
             else:
                 bonus_prob  = torch.softmax(bonus_logit / temperature, dim=-1)
-                bonus_token = torch.multinomial(bonus_prob, num_samples=1)
+                bonus_token = torch.multinomial(bonus_prob, num_samples=1).to(draft_device)
             generated = torch.cat([generated, bonus_token], dim=1)
+
+            # Extend KV with bonus token; carry its logit to next iteration.
+            with torch.no_grad():
+                bonus_out = target_model(
+                    bonus_token.to(target_device),
+                    past_key_values=target_out.past_key_values,
+                    use_cache=True,
+                )
+            target_past_kv    = bonus_out.past_key_values
+            last_target_logit = bonus_out.logits[:, 0, :].to(draft_device)
+
             if bonus_token.item() in eos_ids:
                 stop = True
-
-        # ── Update target prefix cache ────────────────────────────────────────
-        # target_prefix_past now covers 0..(L+γ-1).
-        # After appending (n_accepted + 1) tokens, generated has length new_L.
-        # We need the cache to cover generated[:-1] = new_L - 1 positions.
-        new_L  = generated.shape[1]
-        n_keep = new_L - 1
-        target_prefix_past = tuple(
-            (k[:, :, :n_keep, :], v[:, :, :n_keep, :])
-            for k, v in target_prefix_past
-        )
 
     latency_ms      = (time.perf_counter() - start_time) * 1000
     acceptance_rate = total_accepted / max(total_draft_tokens, 1)
@@ -315,12 +326,7 @@ def run_experiment(
 ) -> pd.DataFrame:
     """
     Run decoding over `samples` and return results as a DataFrame.
-
-    Parameters
-    ----------
     mode : "speculative" | "greedy" | "beam"
-    draft_steps : number of speculative draft tokens (γ), ignored for greedy/beam.
-    temperature : sampling temperature for speculative decoding (0.0 = greedy).
     """
     records = []
 
@@ -359,7 +365,7 @@ def run_experiment(
                 num_beams=4,
             )
         else:
-            raise ValueError(f"Unknown mode: {mode!r}. Use 'speculative', 'greedy', or 'beam'.")
+            raise ValueError(f"Unknown mode: {mode!r}")
 
         records.append({
             "prompt":           prompt,
