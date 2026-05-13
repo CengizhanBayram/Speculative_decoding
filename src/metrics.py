@@ -36,7 +36,7 @@ def compute_task_metrics(pred: str, ref: str, task: str) -> dict:
     if "qa" in task:
         try:
             bleu = sacrebleu.corpus_bleu([pred], [[ref]])
-            metrics["bleu"] = bleu.score
+            metrics["bleu"] = bleu.score / 100.0  # normalise to 0-1 (same scale as ROUGE)
         except Exception as exc:
             warnings.warn(f"BLEU computation failed: {exc}")
             metrics["bleu"] = 0.0

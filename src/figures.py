@@ -268,13 +268,7 @@ def fig_quality_metrics(quality_df: pd.DataFrame, save_dir: Path) -> list:
 
     fig, ax = plt.subplots(figsize=(10, 4))
     for i, cond in enumerate(conds):
-        vals = [
-            quality_df.loc[quality_df["condition"] == cond,
-                           quality_df["metric"] == m if "metric" in quality_df.columns
-                           else quality_df.columns[0] == m].values
-            for m in metrics
-        ]
-        sub  = quality_df[quality_df["condition"] == cond]
+        sub   = quality_df[quality_df["condition"] == cond]
         yvals = [sub[sub["metric"] == m]["value"].mean() if not sub[sub["metric"] == m].empty
                  else 0.0 for m in metrics]
         ax.bar(x + i * w - (len(conds) - 1) * w / 2, yvals,
