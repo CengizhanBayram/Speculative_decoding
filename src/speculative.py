@@ -6,36 +6,56 @@ import pandas as pd
 from tqdm import tqdm
 
 
+def _get_dynamic_cache_class():
+    try:
+        from transformers.cache_utils import DynamicCache
+    except ImportError:
+        from transformers import DynamicCache
+    return DynamicCache
+
+
+def _to_dynamic_cache(past_kv):
+    """
+    Ensure past_kv is a DynamicCache.
+
+    Transformers >= 4.43 updated GPT-2 (and other models) to call
+    past_key_values.get_seq_length() unconditionally, so legacy
+    tuple-of-tuples objects now raise AttributeError. This function
+    converts any tuple-of-tuples output to DynamicCache so it can be
+    safely passed back to any model version.
+    """
+    if past_kv is None or hasattr(past_kv, "key_cache"):
+        return past_kv
+    DynamicCache = _get_dynamic_cache_class()
+    dc = DynamicCache()
+    for layer_kv in past_kv:
+        dc.key_cache.append(layer_kv[0])
+        dc.value_cache.append(layer_kv[1])
+    return dc
+
+
 def _slice_past_kv(past_kv, length: int):
     """
     Trim a KV-cache to the first `length` token positions.
 
-    Uses duck typing to detect DynamicCache (transformers >= 4.38) — safer
-    than isinstance because the class may live at different import paths
-    across transformers versions. Falls back to tuple-of-tuples for GPT-2
-    legacy format, handling any number of tensors per layer defensively.
+    Always returns a DynamicCache — transformers >= 4.43 calls
+    past_key_values.get_seq_length() on every forward pass, so returning
+    a plain tuple causes AttributeError even for GPT-2.
     """
-    # DynamicCache and its subclasses expose key_cache / value_cache lists.
+    DynamicCache = _get_dynamic_cache_class()
+    dc = DynamicCache()
+
     if hasattr(past_kv, "key_cache") and hasattr(past_kv, "value_cache"):
-        try:
-            from transformers.cache_utils import DynamicCache
-        except ImportError:
-            from transformers import DynamicCache
-        dc = DynamicCache()
         for k, v in zip(past_kv.key_cache, past_kv.value_cache):
             dc.key_cache.append(k[:, :, :length, :])
             dc.value_cache.append(v[:, :, :length, :])
-        return dc
+    else:
+        # Legacy tuple-of-tuples fallback
+        for layer_kv in past_kv:
+            dc.key_cache.append(layer_kv[0][:, :, :length, :])
+            dc.value_cache.append(layer_kv[1][:, :, :length, :])
 
-    # Legacy tuple-of-tuples: each layer is a tuple of one or more tensors.
-    # Only 4-D tensors (shape [batch, heads, seq, dim]) are sliced along seq.
-    sliced = []
-    for layer_kv in past_kv:
-        sliced.append(tuple(
-            t[:, :, :length, :] if isinstance(t, torch.Tensor) and t.dim() == 4 else t
-            for t in layer_kv
-        ))
-    return tuple(sliced)
+    return dc
 
 
 def speculative_decode(
@@ -85,7 +105,7 @@ def speculative_decode(
     # draft token (d0) without an extra forward pass.
     with torch.no_grad():
         prompt_out = target_model(generated.to(target_device), use_cache=True)
-    target_past_kv    = prompt_out.past_key_values
+    target_past_kv    = _to_dynamic_cache(prompt_out.past_key_values)
     last_target_logit = prompt_out.logits[:, -1, :].to(draft_device)
 
     stop = False
@@ -106,7 +126,7 @@ def speculative_decode(
                                     past_key_values=past_key_values,
                                     use_cache=True)
                 logit           = out.logits[:, -1, :]
-                past_key_values = out.past_key_values
+                past_key_values = _to_dynamic_cache(out.past_key_values)
 
                 if temperature == 0.0:
                     prob  = torch.zeros_like(logit)
@@ -200,7 +220,7 @@ def speculative_decode(
                     past_key_values=kv_sliced,
                     use_cache=True,
                 )
-            target_past_kv    = corr_out.past_key_values
+            target_past_kv    = _to_dynamic_cache(corr_out.past_key_values)
             last_target_logit = corr_out.logits[:, 0, :].to(draft_device)
 
             if corrected_tok.item() in eos_ids:
@@ -229,10 +249,10 @@ def speculative_decode(
             with torch.no_grad():
                 bonus_out = target_model(
                     bonus_token.to(target_device),
-                    past_key_values=target_out.past_key_values,
+                    past_key_values=_to_dynamic_cache(target_out.past_key_values),
                     use_cache=True,
                 )
-            target_past_kv    = bonus_out.past_key_values
+            target_past_kv    = _to_dynamic_cache(bonus_out.past_key_values)
             last_target_logit = bonus_out.logits[:, 0, :].to(draft_device)
 
             if bonus_token.item() in eos_ids:
