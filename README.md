@@ -80,7 +80,7 @@ Speculative_decoding/
 │   ├── models.py            # draft (float16) and target (float16 / NF4) model loaders
 │   ├── speculative.py       # accept/reject algorithm + target KV cache, greedy, beam, run_experiment
 │   ├── metrics.py           # ROUGE, BLEU, bootstrap CI, Wilcoxon, Cohen d, speedup
-│   ├── linguistic.py        # position/fragmentation/rejection analysis
+│   ├── linguistic.py        # position/fragmentation/rejection analysis + Stanza morphology
 │   └── figures.py           # 8 publication-quality figure generators
 │
 ├── run_experiments.ipynb    # zero-logic Colab notebook (28 cells)
@@ -154,6 +154,7 @@ The entire pipeline is orchestrated by `run_experiments.ipynb`. Cells are ordere
 | 11 | Full statistical test battery (all families) | `statistical_tests.json` |
 | 11b | Output quality: ROUGE + BLEU | `quality_metrics.csv` |
 | 12 | Position / fragmentation / rejected-token analysis | 6 × `.csv` |
+| 12b | Stanza morphological analysis — TR & EN | `stanza_morphology_tr.csv`, `stanza_morphology_en.csv`, `case_distribution_tr.csv` |
 | 13 | Generate all 8 figures | 16 files (8 × PDF + PNG) |
 | 14 | `git_push(f"results: {timestamp}")` | commit hash |
 
