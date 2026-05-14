@@ -28,7 +28,7 @@
 
 **Speculative decoding** is a lossless inference acceleration technique in which a small, fast *draft model* proposes multiple tokens in parallel and a large *target model* verifies them in a single forward pass. Tokens that pass the accept/reject criterion are kept; rejected tokens are resampled from a corrected residual distribution, preserving the exact output distribution of the target model.
 
-This repository studies speculative decoding specifically in the context of **agglutinative Turkish morphology**, hypothesising that Turkish's complex suffix chains cause systematically lower draft-token acceptance rates compared to English — and quantifying that gap with rigorous statistics and linguistic analysis.
+This repository presents the **first systematic empirical study of speculative decoding on Turkish** — an agglutinative language whose rich suffix chains create morphologically complex surface forms. We hypothesise that these complex forms are harder for the draft model to predict, leading to systematically lower acceptance rates compared to English, and we quantify that gap with rigorous statistics and two complementary linguistic analyses: BPE subword fragmentation and Stanza morphological feature counting.
 
 The implementation uses a **target-side KV cache**: the target model is initialised once on the full prompt (O(L) cost) and thereafter called only on the γ draft tokens per iteration (O(γ)), eliminating the O(L) re-encoding cost of a naive implementation and making latency much less sensitive to generation length.
 
@@ -36,12 +36,13 @@ The implementation uses a **target-side KV cache**: the target model is initiali
 
 ## Key Contributions
 
+- **First cross-lingual study of speculative decoding efficiency on Turkish**, an agglutinative language, comparing directly against English as a control group.
 - Full implementation of the **accept/reject speculative decoding algorithm** (Leviathan et al., 2023) with target-side KV cache and per-token logging.
-- Controlled comparison across **6 model pairs**: Turkish GPT-2 small/medium, English GPT-2 small/medium, Llama-3 (1B→8B), and Qwen2.5 (0.5B→7B).
+- Controlled comparison across **6 model pairs**: Turkish GPT-2 small/medium, English GPT-2 small/medium, Llama-3.2 Instruct (1B→8B), and Qwen2.5 (0.5B→7B).
 - **3-seed robustness runs** for TR-small, EN-small, Llama, and Qwen primary conditions to quantify variance.
 - **Cross-lingual pair**: Turkish-SFT Qwen2.5-0.5B draft vs multilingual Qwen2.5-7B-Instruct target — tests whether a Turkish-adapted draft generalises to a multilingual target.
 - **Position-bucket analysis**: acceptance rates across early / mid / late token positions.
-- **Subword fragmentation analysis**: Spearman correlation between fragment count and per-word acceptance rate; cross-linguistic comparison of Turkish vs English morphological complexity.
+- **Dual linguistic analysis pipeline**: (1) BPE subword fragmentation — Spearman correlation between fragment count and per-word acceptance rate; (2) Stanza morphological feature counting — mean active features per word as a language-agnostic morphological complexity metric, cross-compared between Turkish and English.
 - **Rejected-token frequency analysis**: identifies systematic draft failure modes by surface form.
 - **Ablation study** over draft steps γ ∈ {1, 3, 5, 7, 10}.
 - **Output quality validation**: ROUGE-1/2/L + BLEU comparing greedy vs speculative outputs to verify losslessness in practice.
@@ -249,14 +250,12 @@ Target size (774 M) matches the Turkish target exactly, enabling a fair cross-li
 
 | Role | Model | Params | Fine-tuning | Dtype |
 |------|-------|--------|-------------|-------|
-| Draft | `unsloth/Llama-3.2-1B` (or `meta-llama/Llama-3.2-1B`) | ~1 B | **base** | float16 |
+| Draft | `unsloth/Llama-3.2-1B-Instruct` (or `meta-llama/Llama-3.2-1B-Instruct`) | ~1 B | **instruct** | float16 |
 | Target | `ytu-ce-cosmos/Turkish-Llama-8b-Instruct-v0.1` | ~8 B | **instruct** | 4-bit NF4 |
 
-Both models share the Llama-3 tokenizer (128,256 tokens) — the target is fine-tuned from Llama-3.1-8B and inherits it.
+Both models share the Llama-3 tokenizer (128,256 tokens) — the target is fine-tuned from Llama-3.1-8B and inherits it. Both are instruction-tuned, ensuring the draft and target are aligned in fine-tuning type for a fair comparison.
 
 > **Note on dtype:** 4-bit NF4 is a weight storage format only. BitsAndBytes dequantizes to float16 during the forward pass (`bnb_4bit_compute_dtype=torch.float16`), so both models produce float16 logits and are numerically compatible in the accept/reject step.
-
-> **Note on fine-tuning mismatch:** The draft is a **base** model; the target is **instruction-tuned**. A base draft proposing tokens for an instruct-formatted prompt will diverge from the target's distribution, resulting in a lower acceptance rate than same-fine-tuning pairs. This is intentional — this pair is included specifically to **measure the base→instruct distribution gap** and its effect on speculative decoding efficiency. The algorithm remains lossless regardless of acceptance rate.
 
 ### Qwen2.5 Pair (cross-lingual + fine-tuning mismatch)
 
@@ -338,19 +337,31 @@ Significance threshold: α = 0.05 (two-sided).
 
 ## Linguistic Analysis
 
-Implemented in `src/linguistic.py`. No external morphological analyser is required — all analysis uses the shared BPE tokenizer.
+Implemented in `src/linguistic.py`. Two complementary analysis pipelines quantify morphological complexity and its effect on acceptance rates.
 
 ### Position-Bucket Analysis
 
 Each sample's generated sequence is split into **early / mid / late** thirds. Per-bucket acceptance rates reveal whether acceptance degrades as generation progresses (longer context = harder draft alignment).
 
-### Subword Fragmentation
+### Subword Fragmentation (BPE-based)
 
-Since draft and target share the same tokenizer, fragmentation reflects the inherent morphological complexity of each language relative to its vocabulary.
+Since draft and target share the same tokenizer, BPE fragmentation reflects the inherent morphological complexity of each language relative to its vocabulary.
 
 **Cross-linguistic comparison** (`oov_analysis_tr.csv` vs `oov_analysis_en.csv`): mean subword fragments per word for Turkish vs English prompts, showing Turkish's higher morphological load even when a Turkish-specific BPE vocabulary is used.
 
 **Fragmentation–acceptance correlation** (`fragmentation_acceptance.csv`): Spearman ρ between per-word fragment count and mean acceptance rate, testing whether morphologically complex words (more subwords) are systematically harder for the draft model.
+
+### Stanza Morphological Analysis
+
+`stanza_morphology_analysis` uses the Stanza NLP library to extract language-agnostic morphological features (Universal Dependencies tags) for each word in the prompts.
+
+**Morphological feature count per word** (`stanza_morphology_tr.csv` / `stanza_morphology_en.csv`): For each word the pipeline records the full `feats` string (e.g., `Case=Dat|Number=Sing|Person=3|Tense=Past`) and counts active features as `n_feats`. Turkish content words typically exhibit 3–8 features; English content words 0–2. This metric is language-model-independent — it does not depend on any tokenizer or BPE vocabulary.
+
+**Case distribution** (`case_distribution_tr.csv`): counts the grammatical case inventory (Nominative, Accusative, Dative, Genitive, Locative, Ablative, Instrumental) to illustrate the breadth of Turkish morphological marking relative to English.
+
+Together, the BPE fragmentation and Stanza analyses triangulate morphological complexity from two independent sources, strengthening the claim that agglutination — not tokenizer design — drives lower acceptance rates.
+
+> **Prerequisites:** `pip install stanza` and `python -c "import stanza; stanza.download('tr')"` (run once; model is cached). GPU is used automatically if available.
 
 ### Rejected-Token Frequency Analysis
 
@@ -417,6 +428,9 @@ results/
 ├── oov_analysis_tr.csv                  # Turkish subword fragmentation per word
 ├── oov_analysis_en.csv                  # English subword fragmentation per word
 ├── fragmentation_acceptance.csv         # Spearman ρ: fragment count vs acceptance
+├── stanza_morphology_tr.csv             # Turkish word-level morphological features (Stanza)
+├── stanza_morphology_en.csv             # English word-level morphological features (Stanza)
+├── case_distribution_tr.csv             # Turkish grammatical case distribution
 ├── rejected_tokens_tr.csv               # top-30 most-proposed tokens (Turkish)
 └── rejected_tokens_en.csv               # top-30 most-proposed tokens (English)
 ```
@@ -458,7 +472,7 @@ DRAFT_MODEL_EN_MEDIUM_NAME = "gpt2-medium"    # 354 M
 TARGET_MODEL_EN_NAME       = "gpt2-large"     # 774 M
 
 # Llama-3 pair (128,256-token tiktoken vocabulary)
-DRAFT_MODEL_LLAMA_NAME  = "unsloth/Llama-3.2-1B"
+DRAFT_MODEL_LLAMA_NAME  = "unsloth/Llama-3.2-1B-Instruct"
 TARGET_MODEL_LLAMA_NAME = "ytu-ce-cosmos/Turkish-Llama-8b-Instruct-v0.1"
 QUANTIZATION_BITS_LLAMA = 4    # 4-bit NF4 for 8B target
 
