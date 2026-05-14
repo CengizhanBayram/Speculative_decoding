@@ -1,6 +1,5 @@
 from collections import defaultdict
 
-import numpy as np
 import pandas as pd
 from scipy import stats
 
@@ -200,7 +199,7 @@ def position_acceptance_analysis(logs: list) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def oov_analysis(samples: list, tokenizer) -> pd.DataFrame:
+def subword_fragmentation_analysis(samples: list, tokenizer) -> pd.DataFrame:
     """
     Analyse subword fragmentation per word using a single tokenizer.
 

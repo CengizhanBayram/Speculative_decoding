@@ -290,6 +290,52 @@ def fig_quality_metrics(quality_df: pd.DataFrame, save_dir: Path) -> list:
     return _save(fig, save_dir, "quality_metrics")
 
 
+def fig_fragmentation_acceptance(frag_acc_df: pd.DataFrame, save_dir: Path) -> list:
+    """
+    Scatter + trend line: mean acceptance rate vs subword fragment count.
+
+    Shows whether morphologically complex words (more subword tokens) correlate
+    with lower draft acceptance rates.  Spearman r and p-value are read from
+    frag_acc_df.attrs when available and printed on the title.
+    """
+    if frag_acc_df.empty:
+        return []
+
+    grouped = (
+        frag_acc_df.groupby("fragments")["mean_acceptance"]
+        .mean()
+        .reset_index()
+        .sort_values("fragments")
+    )
+    if grouped.empty:
+        return []
+
+    x = grouped["fragments"].values
+    y = grouped["mean_acceptance"].values
+
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.scatter(x, y, color=_PALETTE["blue"], s=70, zorder=3, label="mean acceptance")
+
+    if len(grouped) > 2:
+        m, b = np.polyfit(x, y, 1)
+        ax.plot(x, m * x + b, "--", color=_PALETTE["red"], linewidth=1.5,
+                label=f"trend (slope={m:.4f})")
+
+    r = frag_acc_df.attrs.get("spearman_corr")
+    p = frag_acc_df.attrs.get("spearman_p")
+    title = "Subword Fragmentation vs Draft Acceptance Rate"
+    if r is not None and p is not None:
+        title += f"\nSpearman r={r:.3f}, p={p:.3f}"
+
+    ax.set_title(title, fontsize=10)
+    ax.set_xlabel("Subword Fragments per Word")
+    ax.set_ylabel("Mean Acceptance Rate")
+    ax.set_ylim(0, 1.05)
+    ax.legend(frameon=False, fontsize=9)
+    fig.tight_layout()
+    return _save(fig, save_dir, "fragmentation_acceptance")
+
+
 def fig_position_acceptance(position_df: pd.DataFrame, save_dir: Path) -> list:
     """
     Bar chart of acceptance rates across early / mid / late token position buckets.
@@ -411,8 +457,8 @@ def generate_all_figures(results_dict: dict, save_dir) -> list:
     speculative_en_med  : pd.DataFrame   (English medium-draft speculative) [optional]
     ablation            : pd.DataFrame   (γ ablation runs)
     position_acceptance : pd.DataFrame   (output of position_acceptance_analysis)
-    oov_tr              : pd.DataFrame   (output of oov_analysis for Turkish)
-    oov_en              : pd.DataFrame   (output of oov_analysis for English)
+    oov_tr              : pd.DataFrame   (output of subword_fragmentation_analysis for Turkish)
+    oov_en              : pd.DataFrame   (output of subword_fragmentation_analysis for English)
     quality             : pd.DataFrame   (columns: condition, metric, value) [optional]
 
     Returns
@@ -434,6 +480,7 @@ def generate_all_figures(results_dict: dict, save_dir) -> list:
     spec_qwen_df     = results_dict.get("speculative_qwen")
     ablation_df      = results_dict.get("ablation")
     position_df      = results_dict.get("position_acceptance")
+    frag_acc_df      = results_dict.get("frag_acc")
     oov_tr_df        = results_dict.get("oov_tr")
     oov_en_df        = results_dict.get("oov_en")
     quality_df       = results_dict.get("quality")
@@ -485,6 +532,11 @@ def generate_all_figures(results_dict: dict, save_dir) -> list:
             "fig_position_acceptance",
             lambda: fig_position_acceptance(position_df, save_dir),
             position_df is not None and not position_df.empty,
+        ),
+        (
+            "fig_fragmentation_acceptance",
+            lambda: fig_fragmentation_acceptance(frag_acc_df, save_dir),
+            frag_acc_df is not None and not frag_acc_df.empty,
         ),
         (
             "fig_model_comparison",
