@@ -39,25 +39,32 @@ def _slice_past_kv(past_kv, length: int):
     """
     Trim a KV-cache to the first `length` token positions.
 
-    Uses only stable public Cache API (to_legacy_cache / from_legacy_cache)
-    so that internal DynamicCache changes across transformers versions do not
-    break slicing.  Returns a DynamicCache, or a plain tuple on transformers
-    versions that pre-date DynamicCache.
+    Primary path: DynamicCache.crop() (available since transformers 4.43,
+    same release that mandates get_seq_length — so both always co-exist).
+    crop() is in-place but safe here because the caller passes a freshly
+    created model output that no other code holds a reference to.
+
+    Fallback path: to_legacy_cache / from_legacy_cache serialization API
+    (stable since transformers 4.38) for older installations.
 
     Returns None if past_kv is None (safe no-op for callers).
     """
     if past_kv is None:
         return None
 
+    # ── Preferred: crop() — available in every version that has get_seq_length
+    if hasattr(past_kv, "crop"):
+        past_kv.crop(length)
+        return past_kv
+
     DynamicCache = _get_dynamic_cache_class()
 
-    # ── Step 1: extract tensors via stable public API ─────────────────────────
+    # ── Fallback: extract tensors via serialization API ───────────────────────
     legacy = None
     if hasattr(past_kv, "to_legacy_cache"):
         legacy = past_kv.to_legacy_cache()   # → tuple of (key, value) per layer
 
     if legacy is None:
-        # Fallback: try direct attribute access (older DynamicCache)
         if hasattr(past_kv, "key_cache") and hasattr(past_kv, "value_cache"):
             legacy = tuple(zip(past_kv.key_cache, past_kv.value_cache))
         else:
@@ -66,13 +73,11 @@ def _slice_past_kv(past_kv, length: int):
     if not legacy:                           # empty cache — nothing to slice
         return past_kv
 
-    # ── Step 2: slice every layer's key and value tensors ────────────────────
     sliced = tuple(
         (layer[0][:, :, :length, :], layer[1][:, :, :length, :])
         for layer in legacy
     )
 
-    # ── Step 3: rebuild as DynamicCache via stable class method ──────────────
     if hasattr(DynamicCache, "from_legacy_cache"):
         return DynamicCache.from_legacy_cache(sliced)
     return sliced                            # very old transformers fallback
