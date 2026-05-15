@@ -258,18 +258,16 @@ Both models share the Llama-3 tokenizer (128,256 tokens) — the target is fine-
 
 > **Note on dtype:** 4-bit NF4 is a weight storage format only. BitsAndBytes dequantizes to float16 during the forward pass (`bnb_4bit_compute_dtype=torch.float16`), so both models produce float16 logits and are numerically compatible in the accept/reject step.
 
-### Qwen2.5 Pair (cross-lingual + fine-tuning mismatch)
+### Qwen2.5 Pair
 
 | Role | Model | Params | Fine-tuning | Dtype |
 |------|-------|--------|-------------|-------|
-| Draft | `ytu-ce-cosmos/tr-Qwen2.5-0.5B-SFT-v1` | ~0.5 B | **Turkish SFT** | float16 |
-| Target | `Qwen/Qwen2.5-7B-Instruct` | ~7 B | **multilingual instruct** | 4-bit NF4 |
+| Draft | `Qwen/Qwen2.5-0.5B-Instruct` | ~0.5 B | **instruct** | float16 |
+| Target | `Qwen/Qwen2.5-7B-Instruct` | ~7 B | **instruct** | 4-bit NF4 |
 
-Both models share the Qwen2.5 tokenizer (151,936 tokens).
+Both models share the Qwen2.5 tokenizer (151,936 tokens) and are instruction-tuned, ensuring type-matched speculative decoding. This is a clean same-type pair for cross-scale comparison.
 
 > **Note on dtype:** Same as Llama above — NF4 is storage-only; logits are float16 and compatible.
-
-> **Note on fine-tuning mismatch:** The draft is Turkish-SFT and the target is multilingual-instruct. This pair intentionally stacks two sources of distribution gap: language mismatch (Turkish-adapted draft vs multilingual target) and fine-tuning style mismatch (SFT vs instruct). Acceptance rates are expected to be lower than GPT-2 pairs. The experiment measures how much each factor degrades speculative efficiency — a realistic production scenario where you may not have a matching instruct draft.
 
 > Model names are configured in `src/config.py`. Swap them to run your own pairs — just ensure both models share the same tokenizer.
 

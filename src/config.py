@@ -36,7 +36,7 @@ QUANTIZATION_BITS_LLAMA = 4   # 8B target: 4-bit required on 16 GB T4
 # Draft: Turkish-SFT Qwen2.5-0.5B; Target: Qwen2.5-7B-Instruct (multilingual).
 # Cross-lingual pair: measures whether TR-adapted draft generalises to a
 # multilingual target that was never specifically Turkish-trained.
-DRAFT_MODEL_QWEN_NAME   = "ytu-ce-cosmos/tr-Qwen2.5-0.5B-SFT-v1"
+DRAFT_MODEL_QWEN_NAME   = "Qwen/Qwen2.5-0.5B-Instruct"      # instruct — matches target type; same 151936-token vocab
 TARGET_MODEL_QWEN_NAME  = "Qwen/Qwen2.5-7B-Instruct"
 QUANTIZATION_BITS_QWEN  = 4   # 7B target: 4-bit fits on T4 (~3.5 GB)
 

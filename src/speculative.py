@@ -1,9 +1,16 @@
+import os
 import time
 import warnings
 
 import torch
 import pandas as pd
 from tqdm import tqdm
+
+_RESULT_COLS = [
+    "prompt", "reference", "task", "mode", "draft_steps",
+    "generated_text", "acceptance_rate", "num_target_calls",
+    "latency_ms", "token_level_log",
+]
 
 
 # ── KV-cache utilities ────────────────────────────────────────────────────────
@@ -456,20 +463,25 @@ def run_experiment(
     draft_steps: int = 5,
     max_new_tokens: int = 128,
     temperature: float = 0.0,
+    checkpoint_path=None,
 ) -> pd.DataFrame:
     """
     Run decoding over `samples` and return results as a DataFrame.
     mode : "speculative" | "greedy" | "beam"
 
-    temperature : passed to speculative_decode.
-                  0.0 (default) → greedy speculative, matches greedy baseline exactly.
-                  > 0           → sampling from target distribution.
+    temperature     : 0.0 → greedy speculative (default), matches greedy baseline.
+    checkpoint_path : if given, each completed sample is appended to this CSV so
+                      results are not lost if the kernel crashes mid-run.
 
     Failed samples are skipped with a warning rather than crashing the
     entire run — important for long (500–1000 sample) experiments.
     """
     records  = []
     n_failed = 0
+
+    # Fresh checkpoint for this run — remove any leftover from a previous attempt.
+    if checkpoint_path is not None and os.path.exists(checkpoint_path):
+        os.remove(checkpoint_path)
 
     for sample in tqdm(samples, desc=f"[{mode}] γ={draft_steps}"):
         prompt    = sample["prompt"]
@@ -514,7 +526,7 @@ def run_experiment(
             warnings.warn(f"[{mode}] sample skipped ({type(exc).__name__}: {exc})")
             continue
 
-        records.append({
+        row = {
             "prompt":           prompt,
             "reference":        reference,
             "task":             task,
@@ -525,9 +537,18 @@ def run_experiment(
             "num_target_calls": result["num_target_calls"],
             "latency_ms":       result["latency_ms"],
             "token_level_log":  result["token_level_log"],
-        })
+        }
+        records.append(row)
+
+        if checkpoint_path is not None:
+            write_header = not os.path.exists(checkpoint_path)
+            pd.DataFrame([row]).to_csv(
+                checkpoint_path, mode="a", header=write_header, index=False
+            )
 
     if n_failed:
         warnings.warn(f"[{mode}] {n_failed}/{len(samples)} samples failed and were skipped.")
 
+    if not records:
+        return pd.DataFrame(columns=_RESULT_COLS)
     return pd.DataFrame(records)
