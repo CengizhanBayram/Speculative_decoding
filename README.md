@@ -28,7 +28,7 @@
 
 **Speculative decoding** is a lossless inference acceleration technique in which a small, fast *draft model* proposes multiple tokens in parallel and a large *target model* verifies them in a single forward pass. Tokens that pass the accept/reject criterion are kept; rejected tokens are resampled from a corrected residual distribution, preserving the exact output distribution of the target model.
 
-This repository presents the **first systematic empirical study of speculative decoding on Turkish** — an agglutinative language whose rich suffix chains create morphologically complex surface forms. We hypothesise that these complex forms are harder for the draft model to predict, leading to systematically lower acceptance rates compared to English, and we quantify that gap with rigorous statistics and two complementary linguistic analyses: BPE subword fragmentation and Stanza morphological feature counting.
+This repository presents the **first systematic empirical study of speculative decoding on Turkish** — an agglutinative language whose rich suffix chains create morphologically complex surface forms. Contrary to the naive expectation that agglutination would hurt the draft model, results show that Turkish acceptance rates are *at least as high as* English, revealing that the Turkish-specific BPE vocabulary absorbs much of the morphological complexity into multi-feature single tokens. We quantify this finding with rigorous statistics and two complementary linguistic analyses: BPE subword fragmentation and Stanza morphological feature counting. We also characterise how draft model *size* relative to the target (draft/target parameter ratio) governs whether speculative decoding yields a net speedup — a finding independent of language.
 
 The implementation uses a **target-side KV cache**: the target model is initialised once on the full prompt (O(L) cost) and thereafter called only on the γ draft tokens per iteration (O(γ)), eliminating the O(L) re-encoding cost of a naive implementation and making latency much less sensitive to generation length.
 
@@ -40,7 +40,7 @@ The implementation uses a **target-side KV cache**: the target model is initiali
 - Full implementation of the **accept/reject speculative decoding algorithm** (Leviathan et al., 2023) with target-side KV cache and per-token logging.
 - Controlled comparison across **6 model pairs**: Turkish GPT-2 small/medium, English GPT-2 small/medium, Llama-3.2 Instruct (1B→8B), and Qwen2.5 (0.5B→7B).
 - **3-seed robustness runs** for TR-small, EN-small, Llama, and Qwen primary conditions to quantify variance.
-- **Cross-lingual pair**: Turkish-SFT Qwen2.5-0.5B draft vs multilingual Qwen2.5-7B-Instruct target — tests whether a Turkish-adapted draft generalises to a multilingual target.
+- **Cross-scale instruct pair**: Qwen2.5-0.5B-Instruct draft vs Qwen2.5-7B-Instruct target — clean same-type, same-vocabulary pair that isolates scale (0.5B→7B) as the only variable.
 - **Position-bucket analysis**: acceptance rates across early / mid / late token positions.
 - **Dual linguistic analysis pipeline**: (1) BPE subword fragmentation — Spearman correlation between fragment count and per-word acceptance rate; (2) Stanza morphological feature counting — mean active features per word as a language-agnostic morphological complexity metric, cross-compared between Turkish and English.
 - **Rejected-token frequency analysis**: identifies systematic draft failure modes by surface form.
@@ -358,7 +358,7 @@ Since draft and target share the same tokenizer, BPE fragmentation reflects the 
 
 **Case distribution** (`case_distribution_tr.csv`): counts the grammatical case inventory (Nominative, Accusative, Dative, Genitive, Locative, Ablative, Instrumental) to illustrate the breadth of Turkish morphological marking relative to English.
 
-Together, the BPE fragmentation and Stanza analyses triangulate morphological complexity from two independent sources, strengthening the claim that agglutination — not tokenizer design — drives lower acceptance rates.
+Together, the BPE fragmentation and Stanza analyses triangulate morphological complexity from two independent sources. They explain the counter-intuitive finding that Turkish acceptance rates match or exceed English: while Stanza confirms higher morphological load per word, the Turkish-specific BPE vocabulary encodes those morphemes into compact high-frequency tokens, keeping draft model errors low.
 
 > **Prerequisites:** `pip install stanza` and `python -c "import stanza; stanza.download('tr')"` (run once; model is cached). GPU is used automatically if available.
 
@@ -475,14 +475,15 @@ DRAFT_MODEL_LLAMA_NAME  = "unsloth/Llama-3.2-1B-Instruct"
 TARGET_MODEL_LLAMA_NAME = "ytu-ce-cosmos/Turkish-Llama-8b-Instruct-v0.1"
 QUANTIZATION_BITS_LLAMA = 4    # 4-bit NF4 for 8B target
 
-# Qwen2.5 pair (151,936-token vocabulary)
-DRAFT_MODEL_QWEN_NAME  = "ytu-ce-cosmos/tr-Qwen2.5-0.5B-SFT-v1"
+# Qwen2.5 pair (151,936-token vocabulary, both instruct)
+DRAFT_MODEL_QWEN_NAME  = "Qwen/Qwen2.5-0.5B-Instruct"
 TARGET_MODEL_QWEN_NAME = "Qwen/Qwen2.5-7B-Instruct"
 QUANTIZATION_BITS_QWEN = 4    # 4-bit NF4 for 7B target
 
 MAX_NEW_TOKENS      = 128
 DRAFT_STEPS_LIST    = [1, 3, 5, 7, 10]
 DEFAULT_DRAFT_STEPS = 5
+TEMPERATURE         = 1.0    # sampling; 1.0 makes multi-seed variance meaningful
 
 NUM_SAMPLES_QA    = 500   # XQuAD-TR
 NUM_SAMPLES_SUM   = 500   # TR-News

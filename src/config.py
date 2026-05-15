@@ -49,6 +49,7 @@ DRAFT_MODEL_EN_NAME = DRAFT_MODEL_EN_SMALL_NAME
 MAX_NEW_TOKENS      = 128
 DRAFT_STEPS_LIST    = [1, 3, 5, 7, 10]   # γ values for ablation study
 DEFAULT_DRAFT_STEPS = 5                   # γ used in main experiments
+TEMPERATURE         = 1.0                 # sampling temperature; 1.0 makes multi-seed meaningful
 
 # ── Dataset sizes ─────────────────────────────────────────────────────────────
 NUM_SAMPLES_QA    = 500   # XQuAD-TR (Turkish QA)
