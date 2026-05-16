@@ -28,7 +28,7 @@
 
 **Speculative decoding** is a lossless inference acceleration technique in which a small, fast *draft model* proposes multiple tokens in parallel and a large *target model* verifies them in a single forward pass. Tokens that pass the accept/reject criterion are kept; rejected tokens are resampled from a corrected residual distribution, preserving the exact output distribution of the target model.
 
-This repository presents the **first systematic empirical study of speculative decoding on Turkish** — an agglutinative language whose rich suffix chains create morphologically complex surface forms. Contrary to the naive expectation that agglutination would hurt the draft model, results show that Turkish acceptance rates are *at least as high as* English, revealing that the Turkish-specific BPE vocabulary absorbs much of the morphological complexity into multi-feature single tokens. We quantify this finding with rigorous statistics and two complementary linguistic analyses: BPE subword fragmentation and Stanza morphological feature counting. We also characterise how draft model *size* relative to the target (draft/target parameter ratio) governs whether speculative decoding yields a net speedup — a finding independent of language.
+This repository presents the **first systematic empirical study of speculative decoding on Turkish** — an agglutinative language whose rich suffix chains create morphologically complex surface forms. Contrary to the naive expectation that agglutination would hurt the draft model, our results show that Turkish acceptance rates are *at least as high as* English (α ≈ 0.70 for both), revealing that the Turkish-specific BPE vocabulary absorbs much of the morphological complexity into compact, high-frequency tokens. We quantify this finding with rigorous statistics and two complementary linguistic analyses: BPE subword fragmentation and Stanza morphological feature counting (Turkish exhibits 2.3× more active morphological features per word than English). We further show that the draft/target parameter-count ratio is the primary driver of wall-clock speedup regardless of language: a draft model at 15% of target size achieves speedup while one at 45% incurs overhead.
 
 The implementation uses a **target-side KV cache**: the target model is initialised once on the full prompt (O(L) cost) and thereafter called only on the γ draft tokens per iteration (O(γ)), eliminating the O(L) re-encoding cost of a naive implementation and making latency much less sensitive to generation length.
 
@@ -299,7 +299,7 @@ For each generation step:
     5. Target KV cache is updated by ≤ γ+1 tokens (never re-encodes full context)
 ```
 
-This preserves the **exact output distribution** of the target model (lossless acceleration).
+This preserves the **output distribution** of the target model (distributional losslessness). Individual outputs may differ from autoregressive greedy decoding because the accept/reject draw is stochastic, but the population of outputs follows the identical distribution.
 
 ### Decoding Modes
 
@@ -311,7 +311,7 @@ This preserves the **exact output distribution** of the target model (lossless a
 
 ### Ablation Study
 
-γ ∈ {1, 3, 5, 7, 10} on 100 TR samples (seed = SEEDS[0]). Measures trade-off between:
+γ ∈ {1, 3, 5, 7, 10} on a stratified 100-sample subset (50 QA + 50 SUM, seed = SEEDS[0]) — matching the task distribution of the full 1000-sample runs to avoid inflated acceptance rates from QA-only selection. Measures trade-off between:
 - **Acceptance rate** (tends to decrease as γ grows — longer drafts are harder to fully accept).
 - **Latency** (non-monotone — very small γ under-exploits parallelism; very large γ wastes draft compute).
 
@@ -328,7 +328,7 @@ All tests are run in `src/metrics.py` and saved to `results/statistical_tests.js
 | Cohen's d | Latency distributions | Effect size |
 | Bootstrap CI (n=10 000) | Acceptance rates, speedup ratios | 95 % confidence intervals |
 
-Seed stability is quantified by reporting mean ± std of per-seed acceptance rates for all 3-seed conditions (TR-small, EN-small, Llama, Qwen).
+Seed stability is quantified by reporting mean ± std of per-seed acceptance rates for all 3-seed conditions (TR-small, EN-small, Llama, Qwen). Even at `TEMPERATURE=0.0` (greedy draft proposals), the stochastic accept/reject draw produces meaningful inter-seed variance (std ≈ 0.004 for TR-small), confirming that multi-seed runs capture genuine algorithmic variance rather than sampling noise.
 
 Significance threshold: α = 0.05 (two-sided).
 
@@ -483,7 +483,8 @@ QUANTIZATION_BITS_QWEN = 4    # 4-bit NF4 for 7B target
 MAX_NEW_TOKENS      = 128
 DRAFT_STEPS_LIST    = [1, 3, 5, 7, 10]
 DEFAULT_DRAFT_STEPS = 5
-TEMPERATURE         = 1.0    # sampling; 1.0 makes multi-seed variance meaningful
+TEMPERATURE         = 0.0    # greedy draft proposals; accept/reject is always stochastic
+#                              # → seeds still produce measurable variance (std ≈ 0.004)
 
 NUM_SAMPLES_QA    = 500   # XQuAD-TR
 NUM_SAMPLES_SUM   = 500   # TR-News
