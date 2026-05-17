@@ -1,4 +1,12 @@
 results/
+# Key summary/statistical result files — tracked for reproducibility
+!results/statistical_tests.json
+!results/ablation_gamma.csv
+!results/quality_metrics.csv
+!results/position_acceptance.csv
+!results/rejected_tokens_tr.csv
+!results/rejected_tokens_en.csv
+!results/case_distribution_tr.csv
 figures/
 __pycache__/
 *.pyc
