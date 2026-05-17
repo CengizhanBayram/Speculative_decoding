@@ -1,0 +1,4 @@
+position_bucket,accepted,total,acceptance_rate
+early,96117,109809,0.8753
+mid,102456,109809,0.933
+late,105702,112797,0.9371

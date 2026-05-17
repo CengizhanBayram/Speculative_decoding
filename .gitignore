@@ -1,4 +1,4 @@
-results/
+results/*
 # Key summary/statistical result files — tracked for reproducibility
 !results/statistical_tests.json
 !results/ablation_gamma.csv
