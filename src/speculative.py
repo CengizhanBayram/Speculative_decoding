@@ -148,10 +148,11 @@ def speculative_decode(
 
     Parameters
     ----------
-    temperature : 0.0 → greedy draft proposals (default).  The accept/reject
-                  step is always stochastic (U ~ Uniform sampled per token),
-                  so seeds still produce measurable variance even at T=0.
-                  > 0 → softmax sampling from both draft and target distributions.
+    temperature : 0.0 → greedy draft proposals; accept/reject is fully
+                  deterministic (accept iff draft argmax == target argmax),
+                  so acceptance rate σ = 0.000 across seeds.
+                  > 0 → softmax sampling from both draft and target; stochastic
+                  accept/reject with U ~ Uniform(0, 1) per token.
     """
     start_time = time.perf_counter()
 
@@ -434,8 +435,15 @@ def greedy_decode(
     target_model,
     target_tok,
     max_new_tokens: int = 128,
+    temperature: float = 0.0,
 ) -> dict:
-    """Autoregressive greedy decoding — used as the speed baseline."""
+    """
+    Autoregressive decoding — used as the speed baseline.
+    temperature == 0.0 → deterministic greedy (do_sample=False).
+    temperature  > 0.0 → temperature sampling (do_sample=True), matching the
+                         stochastic speculative decoding condition for a fair
+                         T > 0 latency comparison.
+    """
     start_time = time.perf_counter()
 
     device    = next(target_model.parameters()).device
@@ -443,14 +451,19 @@ def greedy_decode(
 
     pad_token_id = target_tok.pad_token_id or target_tok.eos_token_id
 
+    generate_kwargs = dict(
+        max_new_tokens=max_new_tokens,
+        pad_token_id=pad_token_id,
+        eos_token_id=target_tok.eos_token_id,
+    )
+    if temperature == 0.0:
+        generate_kwargs["do_sample"] = False
+    else:
+        generate_kwargs["do_sample"]    = True
+        generate_kwargs["temperature"]  = temperature
+
     with torch.no_grad():
-        output = target_model.generate(
-            input_ids,
-            max_new_tokens=max_new_tokens,
-            do_sample=False,
-            pad_token_id=pad_token_id,
-            eos_token_id=target_tok.eos_token_id,
-        )
+        output = target_model.generate(input_ids, **generate_kwargs)
 
     latency_ms     = (time.perf_counter() - start_time) * 1000
     new_tokens     = output[0, input_ids.shape[1]:]
@@ -519,8 +532,10 @@ def run_experiment(
     Run decoding over `samples` and return results as a DataFrame.
     mode : "speculative" | "greedy" | "beam"
 
-    temperature     : 0.0 → greedy draft proposals (default).  Even at T=0 the
-                      accept/reject step is stochastic, so seeds produce variance.
+    temperature     : 0.0 → greedy draft proposals; accept/reject is fully
+                      deterministic (accept iff draft argmax == target argmax),
+                      σ = 0.000 across seeds.  > 0 → stochastic sampling from
+                      both draft and target; seeds produce meaningful variance.
     checkpoint_path : if given, each completed sample is appended to this CSV so
                       results are not lost if the kernel crashes mid-run.
 

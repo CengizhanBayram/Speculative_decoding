@@ -188,3 +188,42 @@ def load_squad_en(n: int, seed: int) -> list:
         samples.append({"prompt": prompt, "reference": reference, "task": "qa_en"})
 
     return samples
+
+
+def load_cnndm_en(n: int, seed: int) -> list:
+    """
+    Load CNN/DailyMail English summarisation dataset (version 3.0.0).
+
+    Symmetric counterpart to TR-News: used to give the English experiment
+    both a QA task and a summarisation task, matching the Turkish setup.
+    Each item: {prompt, reference, task}.
+    """
+    candidates = [
+        ("abisee/cnn_dailymail", "3.0.0", "validation"),
+        ("cnn_dailymail",        "3.0.0", "validation"),
+        ("abisee/cnn_dailymail", "3.0.0", "test"),
+    ]
+    ds = None
+    for name, config, split in candidates:
+        try:
+            ds = load_dataset(name, config, split=split)
+            break
+        except Exception:
+            continue
+
+    if ds is None:
+        raise RuntimeError(
+            "Could not load CNN/DailyMail dataset. Check hub names in src/data.py."
+        )
+
+    ds = ds.shuffle(seed=seed).select(range(min(n, len(ds))))
+
+    samples = []
+    for item in ds:
+        article   = item.get("article",   item.get("text", ""))
+        reference = item.get("highlights", item.get("summary", ""))
+
+        prompt = f"Summarise the following article:\n{article[:400]}\nSummary:"
+        samples.append({"prompt": prompt, "reference": reference, "task": "summarization_en"})
+
+    return samples
