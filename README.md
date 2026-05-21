@@ -123,7 +123,7 @@ Speculative_decoding/
 
 ### Option A — Google Colab (recommended)
 
-1. Open `run_experiments.ipynb` in Google Colab with a **T4 or A100 GPU runtime**.
+1. Open `run_experiments.ipynb` in Google Colab with an **L4 or A100 GPU runtime**.
 2. In **Cell 1**, fill in your tokens:
    ```python
    HF_TOKEN = "hf_..."   # Hugging Face access token (read scope)
@@ -147,7 +147,7 @@ pip install -r requirements.txt
 | Llama-3.2-1B → Turkish-Llama-8B (4-bit) | ≥ 6 GB |
 | Qwen2.5-0.5B → Qwen2.5-7B-Instruct (4-bit) | ≥ 5 GB |
 
-Tested on: T4 16 GB (Colab free tier), A100 40 GB (Colab Pro+).
+Tested on: L4 24 GB (Colab Pro), A100 40 GB (Colab Pro+).
 
 ---
 

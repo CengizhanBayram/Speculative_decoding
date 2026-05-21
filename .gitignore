@@ -16,3 +16,5 @@ __pycache__/
 *.safetensors
 .env
 *.token
+/paper/*.tex
+/paper/*.bib

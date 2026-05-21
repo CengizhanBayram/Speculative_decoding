@@ -52,6 +52,19 @@ DRAFT_MODEL_QWEN_NAME   = "Qwen/Qwen2.5-0.5B-Instruct"
 TARGET_MODEL_QWEN_NAME  = "Qwen/Qwen2.5-7B-Instruct"
 QUANTIZATION_BITS_QWEN  = 4   # 7B target: 4-bit fits on T4 (~3.5 GB)
 
+# ── Pythia (EleutherAI) — same-corpus English pair ───────────────────────────
+# All Pythia checkpoints are co-trained from scratch on the Pile dataset
+# (300B tokens, identical training data and order across all sizes).
+# Same NeoX BPE tokenizer (50,304 tokens).
+# This is the direct English analog of the ytu-cosmos same-corpus pair:
+#   ytu-cosmos: TR same-corpus, 117M → 774M, ratio 1:6.6
+#   pythia:     EN same-corpus, 160M → 1B,   ratio 1:6.25
+# Used to break the TR/EN same-corpus / cross-run confound called out
+# by reviewers.
+DRAFT_MODEL_PYTHIA_NAME   = "EleutherAI/pythia-160m"
+TARGET_MODEL_PYTHIA_NAME  = "EleutherAI/pythia-1b"
+QUANTIZATION_BITS_PYTHIA  = 0   # 1B in float16 fits comfortably on L4 (~2GB)
+
 # ── Backwards-compatible aliases ──────────────────────────────────────────────
 DRAFT_MODEL_NAME    = DRAFT_MODEL_TR_SMALL_NAME
 TARGET_MODEL_NAME   = TARGET_MODEL_TR_NAME
