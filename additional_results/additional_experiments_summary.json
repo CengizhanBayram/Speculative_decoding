@@ -1,0 +1,105 @@
+{
+  "M1_pythia_en_same_corpus": {
+    "alpha_mean": 0.6872738148217662,
+    "ci_lower": 0.6818240910337074,
+    "ci_upper": 0.6925871176805362,
+    "n": 3000,
+    "paper_ytu_tr_alpha": 0.7677,
+    "paper_gpt2_en_alpha": 0.7265
+  },
+  "M1_pythia_en_speedup": {
+    "mean_speedup": 0.7700318611424195,
+    "median_speedup": 0.7684598624871594,
+    "std_speedup": 0.12884927890936893,
+    "ci_lower": 0.7619973644296547,
+    "ci_upper": 0.7777892882525367
+  },
+  "M5_gamma_pythia_en_mixed": {
+    "acceptance_rate": {
+      "1": 0.8753,
+      "3": 0.769,
+      "5": 0.6855,
+      "7": 0.6155,
+      "10": 0.5386
+    },
+    "latency_ms": {
+      "1": 2890.8139,
+      "3": 2584.0704,
+      "5": 2640.1061,
+      "7": 2832.7119,
+      "10": 3182.3302
+    }
+  },
+  "M5_gamma_gpt2_en_mixed": {
+    "acceptance_rate": {
+      "1": 0.9033,
+      "3": 0.8198,
+      "5": 0.7433,
+      "7": 0.6791,
+      "10": 0.6017
+    },
+    "latency_ms": {
+      "1": 4773.4523,
+      "3": 3497.5556,
+      "5": 3182.5747,
+      "7": 3152.854,
+      "10": 3214.0847
+    }
+  },
+  "M5_gamma_gpt2_tr_mixed": {
+    "acceptance_rate": {
+      "1": 0.9264,
+      "3": 0.8595,
+      "5": 0.7915,
+      "7": 0.7317,
+      "10": 0.664
+    },
+    "latency_ms": {
+      "1": 4740.552,
+      "3": 3401.8153,
+      "5": 3054.7275,
+      "7": 2958.3646,
+      "10": 2986.407
+    }
+  },
+  "M2_timing_profile": {
+    "gpt2_tr": {
+      "draft_ms_per_token": 10.646,
+      "target_ms_per_token": 30.273,
+      "k_ratio": 2.84,
+      "alpha_observed": 0.7677,
+      "draft_weight_GB": 0.249,
+      "target_weight_GB": 1.548
+    },
+    "llama_en": {
+      "draft_ms_per_token": 20.428,
+      "target_ms_per_token": 84.54,
+      "k_ratio": 4.14,
+      "alpha_observed": 0.5458,
+      "draft_weight_GB": 2.472,
+      "target_weight_GB": 5.592
+    }
+  },
+  "M2_speedup_analysis": {
+    "gpt2_tr": {
+      "k_measured": 2.84,
+      "alpha": 0.7677,
+      "draft_weight_GB": 0.249,
+      "target_weight_GB": 1.548,
+      "S_theoretical": 1.753,
+      "S_bandwidth_limit": 2.682,
+      "S_observed": 1.23,
+      "realized_fraction_of_theory": 0.702
+    },
+    "llama_en": {
+      "k_measured": 4.14,
+      "alpha": 0.5458,
+      "draft_weight_GB": 2.472,
+      "target_weight_GB": 5.592,
+      "S_theoretical": 1.689,
+      "S_bandwidth_limit": 1.162,
+      "S_observed": 0.692,
+      "realized_fraction_of_theory": 0.41
+    }
+  }
+}

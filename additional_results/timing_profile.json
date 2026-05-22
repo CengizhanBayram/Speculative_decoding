@@ -1,0 +1,42 @@
+{
+  "profile": {
+    "gpt2_tr": {
+      "draft_ms_per_token": 10.646,
+      "target_ms_per_token": 30.273,
+      "k_ratio": 2.84,
+      "alpha_observed": 0.7677,
+      "draft_weight_GB": 0.249,
+      "target_weight_GB": 1.548
+    },
+    "llama_en": {
+      "draft_ms_per_token": 20.428,
+      "target_ms_per_token": 84.54,
+      "k_ratio": 4.14,
+      "alpha_observed": 0.5458,
+      "draft_weight_GB": 2.472,
+      "target_weight_GB": 5.592
+    }
+  },
+  "speedup_analysis": {
+    "gpt2_tr": {
+      "k_measured": 2.84,
+      "alpha": 0.7677,
+      "draft_weight_GB": 0.249,
+      "target_weight_GB": 1.548,
+      "S_theoretical": 1.753,
+      "S_bandwidth_limit": 2.682,
+      "S_observed": 1.23,
+      "realized_fraction_of_theory": 0.702
+    },
+    "llama_en": {
+      "k_measured": 4.14,
+      "alpha": 0.5458,
+      "draft_weight_GB": 2.472,
+      "target_weight_GB": 5.592,
+      "S_theoretical": 1.689,
+      "S_bandwidth_limit": 1.162,
+      "S_observed": 0.692,
+      "realized_fraction_of_theory": 0.41
+    }
+  }
+}
