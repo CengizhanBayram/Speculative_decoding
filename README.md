@@ -575,14 +575,7 @@ QUANTIZATION_BITS = 0    # 0 = float16 for GPT-2 / Pythia scale models
 If you use this codebase or paper in your research, please cite:
 
 ```bibtex
-@misc{bayram2025speculative,
-  title   = {Does Agglutinative Morphology Impede Speculative Decoding?
-             Evidence That Corpus Focus, Not Morphology, Governs
-             Speculative Decoding Acceptance},
-  author  = {Bayram, Cengizhan},
-  year    = {2025},
-  url     = {https://github.com/CengizhanBayram/Speculative_decoding}
-}
+
 ```
 
 ### References
