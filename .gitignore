@@ -18,3 +18,4 @@ __pycache__/
 *.token
 /paper/*.tex
 /paper/*.bib
+/paper
