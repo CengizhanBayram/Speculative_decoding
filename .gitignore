@@ -8,6 +8,8 @@ results/*
 !results/rejected_tokens_en.csv
 !results/case_distribution_tr.csv
 figures/
+# One-off notebook-patching scripts (development scaffolding — not part of the pipeline)
+_patch_*.py
 __pycache__/
 *.pyc
 .ipynb_checkpoints/

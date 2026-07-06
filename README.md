@@ -6,8 +6,18 @@
 
 ---
 
+## TL;DR
+
+- **Question:** Does Turkish's rich agglutinative morphology hurt speculative decoding (which relies on a small draft model agreeing with a large target model)?
+- **Answer:** No. Turkish acceptance is actually *higher* than English (α = 0.768 vs. 0.727), even though Turkish fragments into 1.40× more subword tokens per word.
+- **Why:** The decisive factor is **corpus focus** — draft and target trained on the *same, focused* corpus agree far more often than pairs trained on large diverse corpora (a same-corpus English control on the Pile lands at only α = 0.687).
+- **Practical takeaway:** Real speedup comes from a small draft-to-target ratio (~1:6.6) at greedy decoding (T = 0). Larger drafts and 7B-scale targets are compute-bound and *slow down* on a consumer L4 GPU.
+
+---
+
 ## Table of Contents
 
+- [TL;DR](#tldr)
 - [Overview](#overview)
 - [Key Findings](#key-findings)
 - [Key Contributions](#key-contributions)
@@ -81,7 +91,7 @@ The implementation uses a **target-side KV cache**: the target model is initiali
 - **Output quality validation**: ROUGE-1/2/L + BLEU confirming empirical losslessness (Δ < 0.001 for all metrics).
 - Complete statistical battery: Wilcoxon signed-rank, Mann-Whitney U, Cohen's *d*, bootstrap confidence intervals.
 - Five publication-quality figures (PDF + PNG, 300 dpi, serif font).
-- Publicly released code, result CSVs, additional experiment results, and paper draft for full reproducibility.
+- Publicly released code, curated result CSVs, and additional experiment results for full reproducibility.
 
 ---
 
@@ -117,11 +127,6 @@ Speculative_decoding/
 │   ├── linguistic.py        # position/fragmentation/rejection/Stanza analysis
 │   └── figures.py           # 5 publication-quality figure generators
 │
-├── paper/
-│   ├── main.tex             # paper source (ACL-style, multicol layout)
-│   ├── references.bib       # 21 BibTeX entries
-│   └── figures/             # PDF figure files included by main.tex
-│
 ├── results/                 # main experiment CSVs (GPT-2 TR/EN, Llama, Qwen, ablation)
 │
 ├── additional_results/      # M1 Pythia control + gamma ablation (mixed TR/EN)
@@ -139,6 +144,11 @@ Speculative_decoding/
 ├── .gitignore
 └── README.md
 ```
+
+> **Not tracked in this repository:** the LaTeX paper sources (`paper/`) are kept
+> private, and figures are regenerated at run time (see [Figures](#figures)), so
+> neither is committed. Only a curated subset of result files is versioned — see
+> [`.gitignore`](.gitignore) and [Results Layout](#results-layout).
 
 ---
 
@@ -439,7 +449,7 @@ A fixed 100-word Turkish paragraph encoded under four tokenizer families:
 
 ## Figures
 
-All figures saved as PDF (vector) and PNG (raster, 300 dpi) to `paper/figures/`. Style: serif font, 11 pt — ready for ACL/EMNLP submission.
+Figures are regenerated at run time (Cell 13) as PDF (vector) and PNG (raster, 300 dpi) into the configured `FIGURES_DIR` (`src/config.py` — a Google Drive path on Colab). They are **not committed** to the repository. Style: serif font, 11 pt — ready for ACL/EMNLP submission.
 
 | File stem | Content |
 |-----------|---------|
